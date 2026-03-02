@@ -102,7 +102,8 @@
             "group": "Traits & Contracts",
             "pages": [
               "api/wirechat-user",
-              "api/interacts-with-wirechat"
+              "api/interacts-with-wirechat",
+              "api/wirechat-facade"
             ]
           },
           {

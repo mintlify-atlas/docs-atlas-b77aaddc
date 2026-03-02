@@ -98,6 +98,31 @@ Panels in WireChat are configured using a fluent API through the `Panel` class. 
   ```
 </ParamField>
 
+## SPA Mode
+
+<ParamField path="spa" type="bool|Closure" default="false">
+  Enable Single Page Application mode for smoother navigation without full page reloads.
+  
+  ```php
+  $panel->spa()
+  $panel->spa(true)
+  $panel->spa(fn() => config('app.env') === 'production')
+  ```
+  
+  When enabled, Livewire's SPA mode provides instant navigation between chat pages with client-side routing.
+</ParamField>
+
+<ParamField path="spaUrlExceptions" type="array|Closure" default="[]">
+  URLs that should bypass SPA mode and perform full page loads.
+  
+  ```php
+  $panel->spaUrlExceptions(['/chat/settings', '/chat/admin'])
+  $panel->spaUrlExceptions(fn() => [route('chat.export')])
+  ```
+  
+  Useful for pages that require server-side rendering or external navigation.
+</ParamField>
+
 ## Attachments
 
 Configure file and media attachment handling:

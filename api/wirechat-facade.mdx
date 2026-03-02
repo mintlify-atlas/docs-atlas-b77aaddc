@@ -1,0 +1,342 @@
+---
+title: Wirechat Facade
+description: Global helper methods for accessing panels, storage, and configuration
+---
+
+## Overview
+
+The `Wirechat` facade provides convenient access to WireChat's core services, panel registry, and configuration values. It's the primary interface for programmatically interacting with WireChat's global state.
+
+```php
+use Wirechat\Wirechat\Facades\Wirechat;
+```
+
+## Panel Management
+
+### getPanel
+
+Get a specific panel by ID or provider class, with fallback to the default panel.
+
+```php
+public function getPanel(?string $idOrClass = null): ?Panel
+```
+
+**Parameters:**
+<ParamField path="idOrClass" type="string|null" optional>
+  Panel ID (e.g., 'admin') or fully qualified provider class name
+</ParamField>
+
+**Returns:** `Panel|null` - The requested panel or null if not found
+
+**Examples:**
+
+```php
+// Get default panel
+$panel = Wirechat::getPanel();
+
+// Get specific panel by ID
+$adminPanel = Wirechat::getPanel('admin');
+
+// Get panel by provider class
+$panel = Wirechat::getPanel(ChatsPanelProvider::class);
+```
+
+### currentPanel
+
+Get the currently active panel based on the request context.
+
+```php
+public function currentPanel(): ?Panel
+```
+
+**Returns:** `Panel|null` - The current panel or null if none is active
+
+**Example:**
+
+```php
+$current = Wirechat::currentPanel();
+$colors = $current?->getColors();
+```
+
+### getDefaultPanel
+
+Get the panel marked as default.
+
+```php
+public function getDefaultPanel(): ?Panel
+```
+
+**Returns:** `Panel|null` - The default panel
+
+**Throws:** `NoPanelProvidedException` if no default panel is registered
+
+**Example:**
+
+```php
+try {
+    $default = Wirechat::getDefaultPanel();
+} catch (NoPanelProvidedException $e) {
+    // Handle case where no default panel exists
+}
+```
+
+### panels
+
+Get all registered panels.
+
+```php
+public function panels(): ?array
+```
+
+**Returns:** `array|null` - Array of all registered Panel instances
+
+**Example:**
+
+```php
+$allPanels = Wirechat::panels();
+foreach ($allPanels as $panel) {
+    echo $panel->getId() . ': ' . $panel->getPath();
+}
+```
+
+## Storage Access
+
+### storage
+
+Get the storage service for managing attachments and file operations.
+
+```php
+public function storage(): StorageService
+```
+
+**Returns:** `StorageService` instance
+
+**Example:**
+
+```php
+$storage = Wirechat::storage();
+$disk = $storage->disk();
+$directory = $storage->attachmentsDirectory();
+```
+
+## Configuration Helpers
+
+### tablePrefix
+
+Get the database table prefix from configuration.
+
+```php
+public static function tablePrefix(): ?string
+```
+
+**Returns:** `string|null` - Table prefix or null if not set
+
+**Example:**
+
+```php
+$prefix = Wirechat::tablePrefix(); // 'wirechat_'
+```
+
+### formatTableName
+
+Format a table name with the configured prefix.
+
+```php
+public static function formatTableName(string $table): string
+```
+
+**Parameters:**
+<ParamField path="table" type="string" required>
+  Base table name without prefix
+</ParamField>
+
+**Returns:** `string` - Prefixed table name
+
+**Example:**
+
+```php
+$fullName = Wirechat::formatTableName('messages');
+// Returns: 'wirechat_messages'
+```
+
+### usesUuidForConversations
+
+Check if the application is configured to use UUIDs for conversation IDs.
+
+```php
+public static function usesUuidForConversations(): bool
+```
+
+**Returns:** `bool` - True if UUIDs are enabled for conversations
+
+**Example:**
+
+```php
+if (Wirechat::usesUuidForConversations()) {
+    // Handle UUID-based conversation IDs
+}
+```
+
+## UI Configuration
+
+### maxGroupMembers
+
+Get the maximum number of members allowed per group.
+
+```php
+public static function maxGroupMembers(): int
+```
+
+**Returns:** `int` - Maximum group size (default: 1000)
+
+**Example:**
+
+```php
+$limit = Wirechat::maxGroupMembers();
+if ($group->participants()->count() >= $limit) {
+    throw new Exception("Group is full");
+}
+```
+
+## Route Names
+
+### indexRouteName
+
+Get the route name for the conversations list page.
+
+```php
+public static function indexRouteName(): string
+```
+
+**Returns:** `string` - Route name ('chats')
+
+**Example:**
+
+```php
+return redirect()->route(Wirechat::indexRouteName());
+```
+
+### viewRouteName
+
+Get the route name for the individual chat view page.
+
+```php
+public static function viewRouteName(): string
+```
+
+**Returns:** `string` - Route name ('chat')
+
+**Example:**
+
+```php
+return redirect()->route(Wirechat::viewRouteName(), $conversationId);
+```
+
+## Broadcasting & Queue Configuration
+
+### messagesQueue
+
+Get the queue name for message broadcasting.
+
+```php
+public static function messagesQueue(): string
+```
+
+**Returns:** `string` - Queue name (default: 'default')
+
+**Example:**
+
+```php
+BroadcastMessage::dispatch($message)->onQueue(Wirechat::messagesQueue());
+```
+
+### notificationsQueue
+
+Get the queue name for notification broadcasting.
+
+```php
+public static function notificationsQueue(): string
+```
+
+**Returns:** `string` - Queue name (default: 'default')
+
+**Example:**
+
+```php
+NotifyParticipants::dispatch($notification)->onQueue(Wirechat::notificationsQueue());
+```
+
+## Deprecated Methods
+
+<Warning>
+The following methods are deprecated and will be removed in future versions. Use the StorageService methods instead.
+</Warning>
+
+### storageFolder (deprecated)
+
+```php
+public static function storageFolder(): string
+```
+
+**Use instead:** `Wirechat::storage()->attachmentsDirectory()`
+
+### diskVisibility (deprecated)
+
+```php
+public static function diskVisibility(): string
+```
+
+**Use instead:** `Wirechat::storage()->visibility()`
+
+### storageDisk (deprecated)
+
+```php
+public static function storageDisk(): string
+```
+
+**Use instead:** `Wirechat::storage()->disk()`
+
+## Usage Examples
+
+### Check Panel Capabilities
+
+```php
+use Wirechat\Wirechat\Facades\Wirechat;
+
+$panel = Wirechat::currentPanel();
+
+if ($panel && $panel->hasGroups()) {
+    // Show create group button
+}
+```
+
+### Dynamic Route Generation
+
+```php
+use Wirechat\Wirechat\Facades\Wirechat;
+
+// Redirect to chat list
+return redirect()->route(
+    Wirechat::currentPanel()->getId() . '.' . Wirechat::indexRouteName()
+);
+```
+
+### Storage Operations
+
+```php
+use Wirechat\Wirechat\Facades\Wirechat;
+
+$storage = Wirechat::storage();
+
+// Save attachment
+$path = $storage->putFile($file, 'attachments');
+
+// Get public URL
+$url = Storage::disk($storage->disk())->url($path);
+```
+
+## Source Reference
+
+- Facade: `~/workspace/source/src/Facades/Wirechat.php`
+- Service: `~/workspace/source/src/Services/WirechatService.php`
+- Storage Service: `~/workspace/source/src/Services/StorageService.php`
