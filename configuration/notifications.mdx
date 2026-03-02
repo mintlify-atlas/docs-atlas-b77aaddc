@@ -1,0 +1,452 @@
+---
+title: Notifications Configuration
+description: Configure web push notifications for WireChat to alert users of new messages
+---
+
+## Overview
+
+WireChat supports web push notifications to alert users when they receive new messages, even when they're not actively viewing the chat. Notifications are delivered through the browser's native notification system.
+
+## Prerequisites
+
+Web push notifications require:
+
+1. **HTTPS**: Push notifications only work on secure connections (or localhost for development)
+2. **Service Worker**: A JavaScript file that runs in the background
+3. **User Permission**: Users must grant notification permission
+
+## Enabling Web Push Notifications
+
+Enable notifications in your panel provider:
+
+```php
+use Wirechat\Wirechat\Panel;
+use Wirechat\Wirechat\PanelProvider;
+
+class AdminPanelProvider extends PanelProvider
+{
+    public function panel(Panel $panel): Panel
+    {
+        return $panel
+            ->id('admin')
+            ->path('admin')
+            ->webPushNotifications() // Enable web push
+            ->serviceWorkerPath(asset('sw.js')); // Optional: custom path
+    }
+}
+```
+
+### Configuration Methods
+
+<ParamField path="webPushNotifications" type="bool|Closure" default="false">
+  Enable or disable web push notifications.
+  
+  ```php
+  $panel->webPushNotifications()
+  $panel->webPushNotifications(false)
+  $panel->webPushNotifications(fn() => auth()->user()?->wantsNotifications())
+  ```
+</ParamField>
+
+<ParamField path="serviceWorkerPath" type="string|Closure" default="asset('sw.js')">
+  Path to the service worker JavaScript file.
+  
+  ```php
+  $panel->serviceWorkerPath(asset('sw.js'))
+  $panel->serviceWorkerPath(asset('js/custom-sw.js'))
+  $panel->serviceWorkerPath(fn() => asset('sw-'.app()->getLocale().'.js'))
+  ```
+</ParamField>
+
+<Note>
+The `serviceWorkerPath()` is automatically set to `asset('sw.js')` when you call `webPushNotifications()`. You only need to call it explicitly if you want a custom path.
+</Note>
+
+## Creating the Service Worker
+
+Create a service worker file in your `public` directory:
+
+```javascript
+// public/sw.js
+self.addEventListener('push', function(event) {
+    if (event.data) {
+        const data = event.data.json();
+        const options = {
+            body: data.body,
+            icon: data.icon || '/icon.png',
+            badge: data.badge || '/badge.png',
+            data: data.data || {},
+            tag: data.tag || 'wirechat-notification',
+            requireInteraction: false,
+            vibrate: [200, 100, 200]
+        };
+        
+        event.waitUntil(
+            self.registration.showNotification(data.title, options)
+        );
+    }
+});
+
+self.addEventListener('notificationclick', function(event) {
+    event.notification.close();
+    
+    event.waitUntil(
+        clients.openWindow(event.notification.data.url || '/')
+    );
+});
+```
+
+<Warning>
+The service worker file must be served from your domain's root or a parent directory of the pages you want it to control.
+</Warning>
+
+## Registering the Service Worker
+
+Register the service worker in your application JavaScript:
+
+```javascript
+// resources/js/app.js
+if ('serviceWorker' in navigator && 'PushManager' in window) {
+    navigator.serviceWorker.register('/sw.js')
+        .then(function(registration) {
+            console.log('Service Worker registered:', registration);
+        })
+        .catch(function(error) {
+            console.log('Service Worker registration failed:', error);
+        });
+}
+```
+
+## Requesting Permission
+
+Request notification permission from users:
+
+```javascript
+function requestNotificationPermission() {
+    if ('Notification' in window) {
+        Notification.requestPermission().then(function(permission) {
+            if (permission === 'granted') {
+                console.log('Notification permission granted');
+                // Subscribe user to push notifications
+                subscribeUserToPush();
+            } else {
+                console.log('Notification permission denied');
+            }
+        });
+    }
+}
+
+function subscribeUserToPush() {
+    navigator.serviceWorker.ready.then(function(registration) {
+        const vapidPublicKey = 'YOUR_VAPID_PUBLIC_KEY';
+        const convertedVapidKey = urlBase64ToUint8Array(vapidPublicKey);
+        
+        return registration.pushManager.subscribe({
+            userVisibleOnly: true,
+            applicationServerKey: convertedVapidKey
+        });
+    }).then(function(subscription) {
+        console.log('User is subscribed:', subscription);
+        // Send subscription to server
+        saveSubscription(subscription);
+    }).catch(function(error) {
+        console.log('Failed to subscribe user:', error);
+    });
+}
+
+function urlBase64ToUint8Array(base64String) {
+    const padding = '='.repeat((4 - base64String.length % 4) % 4);
+    const base64 = (base64String + padding)
+        .replace(/\-/g, '+')
+        .replace(/_/g, '/');
+    
+    const rawData = window.atob(base64);
+    const outputArray = new Uint8Array(rawData.length);
+    
+    for (let i = 0; i < rawData.length; ++i) {
+        outputArray[i] = rawData.charCodeAt(i);
+    }
+    return outputArray;
+}
+```
+
+## Generating VAPID Keys
+
+Generate VAPID keys for push notifications:
+
+```bash
+npx web-push generate-vapid-keys
+```
+
+Add the keys to your `.env` file:
+
+```bash
+VAPID_PUBLIC_KEY=your-public-key
+VAPID_PRIVATE_KEY=your-private-key
+```
+
+## Sending Push Notifications
+
+Send notifications from your Laravel application:
+
+```php
+use Illuminate\Support\Facades\Notification;
+use App\Notifications\NewMessageNotification;
+
+// Send to a specific user
+$user->notify(new NewMessageNotification($message));
+
+// Send to multiple users
+Notification::send($users, new NewMessageNotification($message));
+```
+
+Create a notification class:
+
+```php
+namespace App\Notifications;
+
+use Illuminate\Bus\Queueable;
+use Illuminate\Contracts\Queue\ShouldQueue;
+use Illuminate\Notifications\Notification;
+use NotificationChannels\WebPush\WebPushChannel;
+use NotificationChannels\WebPush\WebPushMessage;
+
+class NewMessageNotification extends Notification implements ShouldQueue
+{
+    use Queueable;
+    
+    protected $message;
+    
+    public function __construct($message)
+    {
+        $this->message = $message;
+    }
+    
+    public function via($notifiable)
+    {
+        return [WebPushChannel::class];
+    }
+    
+    public function toWebPush($notifiable, $notification)
+    {
+        return (new WebPushMessage)
+            ->title('New Message')
+            ->body($this->message->body)
+            ->icon('/icon.png')
+            ->badge('/badge.png')
+            ->data(['url' => route('wirechat.admin.chat', $this->message->conversation_id)])
+            ->tag('new-message')
+            ->vibrate([200, 100, 200]);
+    }
+}
+```
+
+## Installing Web Push Package
+
+Install the Laravel Web Push notification channel:
+
+```bash
+composer require laravel-notification-channels/webpush
+```
+
+Publish the configuration:
+
+```bash
+php artisan vendor:publish --provider="NotificationChannels\WebPush\WebPushServiceProvider" --tag="migrations"
+php artisan migrate
+```
+
+Publish the config file:
+
+```bash
+php artisan vendor:publish --provider="NotificationChannels\WebPush\WebPushServiceProvider" --tag="config"
+```
+
+Update `config/webpush.php`:
+
+```php
+return [
+    'vapid' => [
+        'subject' => env('VAPID_SUBJECT', 'mailto:your-email@example.com'),
+        'public_key' => env('VAPID_PUBLIC_KEY'),
+        'private_key' => env('VAPID_PRIVATE_KEY'),
+    ],
+];
+```
+
+## User Model Setup
+
+Add the trait to your User model:
+
+```php
+namespace App\Models;
+
+use Illuminate\Foundation\Auth\User as Authenticatable;
+use NotificationChannels\WebPush\HasPushSubscriptions;
+
+class User extends Authenticatable
+{
+    use HasPushSubscriptions;
+    
+    // ...
+}
+```
+
+## Per-Panel Notifications
+
+Different panels can have different notification settings:
+
+```php
+// Admin Panel - Notifications enabled
+class AdminPanelProvider extends PanelProvider
+{
+    public function panel(Panel $panel): Panel
+    {
+        return $panel
+            ->id('admin')
+            ->path('admin')
+            ->webPushNotifications()
+            ->serviceWorkerPath(asset('sw-admin.js'));
+    }
+}
+
+// Public Panel - Notifications enabled with different service worker
+class PublicPanelProvider extends PanelProvider
+{
+    public function panel(Panel $panel): Panel
+    {
+        return $panel
+            ->id('public')
+            ->path('chat')
+            ->webPushNotifications()
+            ->serviceWorkerPath(asset('sw-public.js'));
+    }
+}
+
+// Internal Panel - Notifications disabled
+class InternalPanelProvider extends PanelProvider
+{
+    public function panel(Panel $panel): Panel
+    {
+        return $panel
+            ->id('internal')
+            ->path('internal')
+            ->webPushNotifications(false);
+    }
+}
+```
+
+## Checking Notification Status
+
+Access notification configuration at runtime:
+
+```php
+use Wirechat\Wirechat\Facades\Wirechat;
+
+$panel = Wirechat::getPanel('admin');
+
+if ($panel->hasWebPushNotifications()) {
+    $serviceWorkerPath = $panel->getServiceWorkerPath();
+    echo "Service worker at: {$serviceWorkerPath}";
+}
+```
+
+## Testing Notifications
+
+Test notifications in your browser console:
+
+```javascript
+// Check if notifications are supported
+if ('Notification' in window) {
+    console.log('Notifications supported');
+}
+
+// Check current permission
+console.log('Permission:', Notification.permission);
+
+// Send a test notification (requires permission)
+if (Notification.permission === 'granted') {
+    new Notification('Test Notification', {
+        body: 'This is a test message',
+        icon: '/icon.png'
+    });
+}
+```
+
+## Troubleshooting
+
+<Tabs>
+  <Tab title="Permission Issues">
+    - Ensure you're using HTTPS (or localhost)
+    - Check browser settings allow notifications
+    - Verify user hasn't blocked notifications for your site
+    - Check `Notification.permission` status in console
+  </Tab>
+  <Tab title="Service Worker">
+    - Verify service worker file is accessible at the specified path
+    - Check service worker registration in browser DevTools
+    - Ensure service worker scope covers chat pages
+    - Check for JavaScript errors in service worker
+  </Tab>
+  <Tab title="Delivery Issues">
+    - Verify VAPID keys are correctly configured
+    - Check push subscription is saved to database
+    - Ensure notification queue is processing
+    - Verify web push package is installed
+  </Tab>
+</Tabs>
+
+## Complete Example
+
+```php
+// Panel Provider
+namespace App\Providers\Wirechat;
+
+use Wirechat\Wirechat\Panel;
+use Wirechat\Wirechat\PanelProvider;
+
+class AdminPanelProvider extends PanelProvider
+{
+    public function panel(Panel $panel): Panel
+    {
+        return $panel
+            ->id('admin')
+            ->path('admin')
+            ->webPushNotifications()
+            ->serviceWorkerPath(asset('sw.js'));
+    }
+}
+
+// .env
+VAPID_SUBJECT=mailto:admin@example.com
+VAPID_PUBLIC_KEY=your-public-key
+VAPID_PRIVATE_KEY=your-private-key
+
+// public/sw.js
+self.addEventListener('push', function(event) {
+    const data = event.data.json();
+    event.waitUntil(
+        self.registration.showNotification(data.title, {
+            body: data.body,
+            icon: data.icon,
+            data: data.data
+        })
+    );
+});
+
+self.addEventListener('notificationclick', function(event) {
+    event.notification.close();
+    event.waitUntil(
+        clients.openWindow(event.notification.data.url)
+    );
+});
+
+// resources/js/app.js
+if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/sw.js');
+}
+
+if ('Notification' in window && Notification.permission === 'default') {
+    Notification.requestPermission();
+}
+```

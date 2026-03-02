@@ -1,0 +1,493 @@
+---
+title: Groups
+description: Understanding groups in WireChat - multi-user conversations with advanced settings
+---
+
+## Overview
+
+Groups extend conversations to support multiple users with additional settings and permissions. They provide features like custom names, descriptions, avatars, and fine-grained control over member capabilities.
+
+## Group Types
+
+WireChat supports two group types:
+
+```php
+use Wirechat\Wirechat\Enums\GroupType;
+
+enum GroupType: string
+{
+    case PRIVATE = 'private';
+    case PUBLIC = 'public';
+}
+```
+
+### Private Groups
+
+Invite-only groups with restricted access:
+
+```php
+use Wirechat\Wirechat\Enums\GroupType;
+
+$group = Group::create([
+    'conversation_id' => $conversation->id,
+    'name' => 'My Private Group',
+    'type' => GroupType::PRIVATE,
+]);
+```
+
+### Public Groups
+
+Groups that can be discovered and joined:
+
+```php
+$group = Group::create([
+    'conversation_id' => $conversation->id,
+    'name' => 'Community Group',
+    'type' => GroupType::PUBLIC,
+]);
+```
+
+## Database Structure
+
+Groups have the following attributes:
+
+```php
+/**
+ * @property int $id
+ * @property int $conversation_id
+ * @property string|null $name
+ * @property string|null $description
+ * @property string|null $avatar_url
+ * @property GroupType $type
+ * @property bool $allow_members_to_send_messages
+ * @property bool $allow_members_to_add_others
+ * @property bool $allow_members_to_edit_group_info
+ * @property int $admins_must_approve_new_members
+ * @property \Illuminate\Support\Carbon|null $created_at
+ * @property \Illuminate\Support\Carbon|null $updated_at
+ */
+```
+
+## Creating a Group
+
+Groups are created alongside group conversations:
+
+```php
+use Wirechat\Wirechat\Models\Conversation;
+use Wirechat\Wirechat\Models\Group;
+use Wirechat\Wirechat\Enums\ConversationType;
+use Wirechat\Wirechat\Enums\GroupType;
+use Wirechat\Wirechat\Enums\ParticipantRole;
+
+// Create the conversation
+$conversation = Conversation::create([
+    'type' => ConversationType::GROUP,
+]);
+
+// Create the group
+$group = Group::create([
+    'conversation_id' => $conversation->id,
+    'name' => 'Product Team',
+    'description' => 'Discussions about product development',
+    'type' => GroupType::PRIVATE,
+]);
+
+// Add the creator as owner
+$conversation->addParticipant($user, ParticipantRole::OWNER);
+```
+
+## Relationships
+
+### Conversation
+
+Every group belongs to a conversation:
+
+```php
+$conversation = $group->conversation;
+
+// Access participants through conversation
+$participants = $group->conversation->participants;
+```
+
+### Cover Image
+
+Groups can have a cover image:
+
+```php
+// Check if group has cover
+if ($group->cover) {
+    echo $group->cover_url;
+}
+
+// The cover_url accessor
+echo $group->cover_url; // Returns $group->cover?->url
+```
+
+## Member Permissions
+
+Groups provide granular control over member capabilities:
+
+### Allow Members to Send Messages
+
+Control whether regular members can send messages:
+
+```php
+if ($group->allowsMembersToSendMessages()) {
+    // Members can send messages
+} else {
+    // Only admins can send messages
+}
+```
+
+Implementation from source:
+
+```php
+public function allowsMembersToSendMessages(): bool
+{
+    return $this->allow_members_to_send_messages == true;
+}
+```
+
+### Allow Members to Add Others
+
+Control whether members can invite others:
+
+```php
+if ($group->allowsMembersToAddOthers()) {
+    // Members can invite others
+} else {
+    // Only admins can add members
+}
+```
+
+Implementation:
+
+```php
+public function allowsMembersToAddOthers(): bool
+{
+    return $this->allow_members_to_add_others == true;
+}
+```
+
+### Allow Members to Edit Group Info
+
+Control whether members can edit group details:
+
+```php
+if ($group->allowsMembersToEditGroupInfo()) {
+    // Members can edit name, description, etc.
+} else {
+    // Only admins can edit group info
+}
+```
+
+Implementation:
+
+```php
+public function allowsMembersToEditGroupInfo(): bool
+{
+    return $this->allow_members_to_edit_group_info == true;
+}
+```
+
+## Admin Approval
+
+Require admin approval for new members:
+
+```php
+$group->update([
+    'admins_must_approve_new_members' => true,
+]);
+
+if ($group->admins_must_approve_new_members) {
+    // New members must be approved by admins
+}
+```
+
+## Ownership
+
+Check if a user owns a group:
+
+```php
+if ($group->isOwnedBy($user)) {
+    echo "User is the group owner";
+}
+```
+
+From the source code:
+
+```php
+public function isOwnedBy(Model|Authenticatable $user): bool
+{
+    $conversation = $this->conversation;
+
+    // Check if participants are already loaded
+    if ($conversation->relationLoaded('participants')) {
+        return $conversation->participants->contains(function ($participant) use ($user) {
+            return $participant->participantable_id == $user->getKey() &&
+                $participant->participantable_type == $user->getMorphClass() &&
+                $participant->role == ParticipantRole::OWNER;
+        });
+    }
+
+    // If not loaded, perform the query
+    return $conversation->participants()
+        ->where('participantable_id', $user->getKey())
+        ->where('participantable_type', $user->getMorphClass())
+        ->where('role', ParticipantRole::OWNER)
+        ->exists();
+}
+```
+
+<Info>
+  The `isOwnedBy()` method efficiently checks loaded relationships first before querying the database.
+</Info>
+
+## Managing Members
+
+Groups inherit participant management from their conversation:
+
+### Adding Members
+
+```php
+use Wirechat\Wirechat\Enums\ParticipantRole;
+
+// Add as regular member
+$group->conversation->addParticipant($user, ParticipantRole::PARTICIPANT);
+
+// Add as admin
+$group->conversation->addParticipant($adminUser, ParticipantRole::ADMIN);
+```
+
+### Removing Members
+
+```php
+$participant = $group->conversation->participant($user);
+$participant->removeByAdmin($adminUser);
+```
+
+### Member Count
+
+```php
+$memberCount = $group->conversation->participants()->count();
+
+echo "This group has {$memberCount} members";
+```
+
+## Cover Images
+
+Groups use the polymorphic attachment system for cover images:
+
+```php
+use Wirechat\Wirechat\Models\Attachment;
+
+// Upload and attach cover
+$attachment = Attachment::create([
+    'attachable_type' => Group::class,
+    'attachable_id' => $group->id,
+    'file_path' => $path,
+    'file_name' => $filename,
+    'mime_type' => $mimeType,
+]);
+
+// Access cover URL
+echo $group->cover_url;
+```
+
+The cover relationship:
+
+```php
+public function cover(): MorphOne
+{
+    return $this->morphOne(Attachment::class, 'attachable');
+}
+
+public function getCoverUrlAttribute(): ?string
+{
+    return $this->cover?->url;
+}
+```
+
+## Cascade Deletion
+
+When a group is deleted, its cover image is automatically deleted:
+
+```php
+protected static function boot()
+{
+    parent::boot();
+
+    static::deleted(function ($group) {
+        if ($group->cover?->exists()) {
+            $group->cover->delete();
+        }
+    });
+}
+```
+
+<Warning>
+  Deleting a conversation will also delete its associated group and all participants.
+</Warning>
+
+## Updating Group Settings
+
+Update group information and permissions:
+
+```php
+$group->update([
+    'name' => 'Updated Group Name',
+    'description' => 'New description',
+    'allow_members_to_send_messages' => false,
+    'allow_members_to_add_others' => false,
+    'allow_members_to_edit_group_info' => false,
+    'admins_must_approve_new_members' => true,
+]);
+```
+
+<Note>
+  Always check if a user has permission to edit group settings before allowing updates.
+</Note>
+
+## Permission Checking
+
+Check user permissions within a group:
+
+```php
+function canEditGroup($user, $group): bool
+{
+    $participant = $group->conversation->participant($user);
+    
+    if (!$participant) {
+        return false;
+    }
+    
+    // Admins can always edit
+    if ($participant->isAdmin()) {
+        return true;
+    }
+    
+    // Check if members are allowed to edit
+    return $group->allowsMembersToEditGroupInfo();
+}
+
+function canInviteMembers($user, $group): bool
+{
+    $participant = $group->conversation->participant($user);
+    
+    if (!$participant) {
+        return false;
+    }
+    
+    if ($participant->isAdmin()) {
+        return true;
+    }
+    
+    return $group->allowsMembersToAddOthers();
+}
+```
+
+## Best Practices
+
+<Tip>
+  - Always create a GROUP type conversation before creating a group
+  - Set sensible defaults for permissions based on your use case
+  - Use `isOwnedBy()` to check ownership before allowing destructive actions
+  - Validate permissions before allowing users to modify group settings
+  - Load the conversation relationship when accessing participants
+  - Consider using `admins_must_approve_new_members` for private communities
+</Tip>
+
+## Common Patterns
+
+### Complete Group Creation
+
+```php
+use Illuminate\Support\Facades\DB;
+
+function createGroup($creator, $name, $description): Group
+{
+    return DB::transaction(function () use ($creator, $name, $description) {
+        // Create conversation
+        $conversation = Conversation::create([
+            'type' => ConversationType::GROUP,
+        ]);
+        
+        // Create group
+        $group = Group::create([
+            'conversation_id' => $conversation->id,
+            'name' => $name,
+            'description' => $description,
+            'type' => GroupType::PRIVATE,
+            'allow_members_to_send_messages' => true,
+            'allow_members_to_add_others' => false,
+            'allow_members_to_edit_group_info' => false,
+        ]);
+        
+        // Add creator as owner
+        $conversation->addParticipant($creator, ParticipantRole::OWNER);
+        
+        return $group;
+    });
+}
+```
+
+### Permission-Based Message Sending
+
+```php
+function canSendMessageToGroup($user, $group): bool
+{
+    $participant = $group->conversation->participant($user);
+    
+    if (!$participant) {
+        return false;
+    }
+    
+    if ($participant->hasExited() || $participant->isRemovedByAdmin()) {
+        return false;
+    }
+    
+    // Admins can always send
+    if ($participant->isAdmin()) {
+        return true;
+    }
+    
+    // Check group settings
+    return $group->allowsMembersToSendMessages();
+}
+```
+
+### Restrict Admin-Only Groups
+
+```php
+function createAdminOnlyGroup($owner, $name): Group
+{
+    $conversation = Conversation::create([
+        'type' => ConversationType::GROUP,
+    ]);
+    
+    $group = Group::create([
+        'conversation_id' => $conversation->id,
+        'name' => $name,
+        'type' => GroupType::PRIVATE,
+        'allow_members_to_send_messages' => false, // Only admins
+        'allow_members_to_add_others' => false,
+        'allow_members_to_edit_group_info' => false,
+        'admins_must_approve_new_members' => true,
+    ]);
+    
+    $conversation->addParticipant($owner, ParticipantRole::OWNER);
+    
+    return $group;
+}
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Participants" icon="users" href="/concepts/participants">
+    Learn about participant roles and management
+  </Card>
+  <Card title="Messages" icon="message" href="/concepts/messages">
+    Understand how messages work in groups
+  </Card>
+</CardGroup>

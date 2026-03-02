@@ -1,0 +1,324 @@
+---
+title: 'Events'
+description: 'Listen to and dispatch WireChat events for custom behavior'
+icon: 'bolt'
+---
+
+## Overview
+
+WireChat dispatches several Laravel events throughout the message lifecycle. You can listen to these events to implement custom behavior, logging, notifications, or integrations.
+
+## Available Events
+
+### MessageCreated
+
+Dispatched when a new message is created and broadcasted to conversation participants.
+
+```php src/Events/MessageCreated.php
+use Wirechat\Wirechat\Events\MessageCreated;
+
+class MessageCreated implements ShouldBroadcast
+{
+    public $message;
+
+    public function __construct(Message $message, ?string $panel = null)
+    {
+        $this->message = $message->load([]);
+        $this->resolvePanel($panel);
+        $this->onQueue($this->getPanel()->getMessagesQueue());
+    }
+
+    public function broadcastOn(): array
+    {
+        $panelId = $this->getPanel()->getId();
+        return [new PrivateChannel("$panelId.conversation.{$this->message->conversation_id}")];
+    }
+}
+```
+
+<Note>
+  The `MessageCreated` event uses `ShouldBroadcast` and is queued. It only broadcasts if the message is not older than 1 minute.
+</Note>
+
+### MessageDeleted
+
+Dispatched when a message is deleted from a conversation.
+
+```php src/Events/MessageDeleted.php
+use Wirechat\Wirechat\Events\MessageDeleted;
+
+class MessageDeleted implements ShouldBroadcastNow
+{
+    public $message;
+
+    public function __construct(Message $message, ?string $panel = null)
+    {
+        $this->message = $message->load([]);
+        $this->resolvePanel($panel);
+    }
+
+    public function broadcastWith(): array
+    {
+        return [
+            'message' => [
+                'id' => $this->message->id,
+                'conversation_id' => $this->message->conversation_id,
+                'participant_id' => $this->message->participant_id,
+            ],
+        ];
+    }
+}
+```
+
+<Warning>
+  `MessageDeleted` uses `ShouldBroadcastNow` to broadcast immediately without queuing, ensuring instant UI updates.
+</Warning>
+
+### NotifyParticipant
+
+Dispatched to notify individual participants about new messages in their conversations.
+
+```php src/Events/NotifyParticipant.php
+use Wirechat\Wirechat\Events\NotifyParticipant;
+
+class NotifyParticipant implements ShouldBroadcastNow
+{
+    public function __construct(
+        public Participant|Model $participant,
+        public Message $message,
+        ?string $panel = null
+    ) {
+        $this->resolvePanel($panel);
+        
+        $this->message->loadMissing([
+            'participant.participantable',
+            'participant.conversation.group',
+            'attachment',
+        ]);
+    }
+
+    public function broadcastOn(): array
+    {
+        $encodedType = MorphClassResolver::encode($this->participantType);
+        $panelId = $this->getPanel()->getId();
+        
+        return [new PrivateChannel("$panelId.participant.$encodedType.$this->participantId")];
+    }
+}
+```
+
+## Listening to Events
+
+### Create an Event Listener
+
+Generate a listener using Artisan:
+
+```bash
+php artisan make:listener LogMessageCreated
+```
+
+### Implement the Listener
+
+```php app/Listeners/LogMessageCreated.php
+namespace App\Listeners;
+
+use Wirechat\Wirechat\Events\MessageCreated;
+use Illuminate\Support\Facades\Log;
+
+class LogMessageCreated
+{
+    public function handle(MessageCreated $event): void
+    {
+        Log::info('Message created', [
+            'message_id' => $event->message->id,
+            'conversation_id' => $event->message->conversation_id,
+            'panel' => $event->getPanel()->getId(),
+        ]);
+    }
+}
+```
+
+### Register the Listener
+
+```php app/Providers/EventServiceProvider.php
+use Wirechat\Wirechat\Events\MessageCreated;
+use App\Listeners\LogMessageCreated;
+
+protected $listen = [
+    MessageCreated::class => [
+        LogMessageCreated::class,
+    ],
+];
+```
+
+## Advanced Use Cases
+
+<Accordion title="Send Email Notifications">
+
+```php app/Listeners/SendEmailNotification.php
+namespace App\Listeners;
+
+use Wirechat\Wirechat\Events\NotifyParticipant;
+use Illuminate\Support\Facades\Mail;
+use App\Mail\NewMessageNotification;
+
+class SendEmailNotification
+{
+    public function handle(NotifyParticipant $event): void
+    {
+        $participant = $event->participant;
+        $message = $event->message;
+        
+        // Get the participant's email
+        if ($participant instanceof \Wirechat\Wirechat\Models\Participant) {
+            $user = $participant->participantable;
+        } else {
+            $user = $participant;
+        }
+        
+        if ($user && $user->email) {
+            Mail::to($user->email)->send(
+                new NewMessageNotification($message)
+            );
+        }
+    }
+}
+```
+
+</Accordion>
+
+<Accordion title="Content Moderation">
+
+```php app/Listeners/ModerateMessage.php
+namespace App\Listeners;
+
+use Wirechat\Wirechat\Events\MessageCreated;
+use App\Services\ModerationService;
+
+class ModerateMessage
+{
+    public function __construct(
+        protected ModerationService $moderationService
+    ) {}
+
+    public function handle(MessageCreated $event): void
+    {
+        $message = $event->message;
+        
+        // Check for inappropriate content
+        if ($this->moderationService->isInappropriate($message->body)) {
+            $message->update([
+                'body' => '[Message removed by moderator]',
+                'is_moderated' => true,
+            ]);
+        }
+    }
+}
+```
+
+</Accordion>
+
+<Accordion title="Analytics & Tracking">
+
+```php app/Listeners/TrackMessageMetrics.php
+namespace App\Listeners;
+
+use Wirechat\Wirechat\Events\MessageCreated;
+use Illuminate\Support\Facades\Cache;
+
+class TrackMessageMetrics
+{
+    public function handle(MessageCreated $event): void
+    {
+        $message = $event->message;
+        $panel = $event->getPanel();
+        
+        // Increment daily message count
+        $key = "messages:count:{$panel->getId()}:" . now()->format('Y-m-d');
+        Cache::increment($key);
+        
+        // Track conversation activity
+        Cache::put(
+            "conversation:last_activity:{$message->conversation_id}",
+            now(),
+            now()->addDays(30)
+        );
+    }
+}
+```
+
+</Accordion>
+
+## Event Broadcasting Queues
+
+WireChat uses different queues for different event types:
+
+```php app/Providers/WirechatPanelProvider.php
+use Wirechat\Wirechat\Panel;
+
+public function panel(Panel $panel): Panel
+{
+    return $panel
+        ->id('app')
+        ->messagesQueue('messages')  // For MessageCreated events
+        ->eventsQueue('default');    // For group message notifications
+}
+```
+
+<Tip>
+  Use separate queues to prioritize message delivery over other events. This ensures messages are processed quickly even under heavy load.
+</Tip>
+
+## Panel-Specific Events
+
+All WireChat events use the `InteractsWithPanel` trait, which allows you to target specific panels:
+
+```php
+use Wirechat\Wirechat\Events\MessageCreated;
+
+// Dispatch event for specific panel
+event(new MessageCreated($message, panel: 'admin'));
+
+// In your listener, access the panel
+class CustomListener
+{
+    public function handle(MessageCreated $event): void
+    {
+        $panelId = $event->getPanel()->getId();
+        
+        if ($panelId === 'admin') {
+            // Handle admin panel messages differently
+        }
+    }
+}
+```
+
+## Broadcasting Conditions
+
+### Message Age Check
+
+Both `MessageCreated` and `NotifyParticipant` events include age verification:
+
+```php
+public function broadcastWhen(): bool
+{
+    // Only broadcast if message is not older than 1 minute
+    return Carbon::parse($this->message->created_at)
+        ->gt(Carbon::now()->subMinute());
+}
+```
+
+<Note>
+  This prevents stale messages from being broadcasted if queue processing is delayed.
+</Note>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Broadcasting" icon="tower-broadcast" href="/advanced/broadcasting">
+    Configure real-time broadcasting
+  </Card>
+  <Card title="Extending" icon="puzzle-piece" href="/advanced/extending">
+    Extend WireChat components
+  </Card>
+</CardGroup>

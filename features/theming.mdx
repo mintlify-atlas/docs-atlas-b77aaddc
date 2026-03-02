@@ -1,0 +1,481 @@
+---
+title: 'Theming'
+description: 'Customize colors, appearance, and branding of WireChat'
+icon: 'palette'
+---
+
+WireChat provides extensive theming capabilities to match your application's design. Customize colors, add your branding, and control the visual appearance of the chat interface.
+
+## Custom Colors
+
+Define custom color palettes for your chat interface:
+
+```php
+use Wirechat\Wirechat\Panel;
+
+Panel::make('admin')
+    ->colors([
+        'primary' => [
+            50 => '#eff6ff',
+            100 => '#dbeafe',
+            200 => '#bfdbfe',
+            300 => '#93c5fd',
+            400 => '#60a5fa',
+            500 => '#3b82f6',
+            600 => '#2563eb',
+            700 => '#1d4ed8',
+            800 => '#1e40af',
+            900 => '#1e3a8a',
+            950 => '#172554',
+        ],
+    ])
+```
+
+### Multiple Color Sets
+
+Define multiple color schemes:
+
+```php
+Panel::make('admin')
+    ->colors([
+        'primary' => [
+            500 => '#3b82f6',
+            600 => '#2563eb',
+            // ... other shades
+        ],
+        'secondary' => [
+            500 => '#8b5cf6',
+            600 => '#7c3aed',
+            // ... other shades
+        ],
+        'accent' => [
+            500 => '#ec4899',
+            600 => '#db2777',
+            // ... other shades
+        ],
+    ])
+```
+
+### Using Closures
+
+Dynamically set colors based on conditions:
+
+```php
+Panel::make('admin')
+    ->colors(fn () => [
+        'primary' => auth()->user()?->team->color_palette ?? [
+            500 => '#3b82f6',
+            // ... default colors
+        ],
+    ])
+```
+
+## Color Implementation
+
+Colors are merged and processed internally:
+
+```php
+// src/Panel/Concerns/HasColors.php:24-38
+public function getColors(): array
+{
+    $colors = [];
+    
+    foreach ($this->colors as $set) {
+        $set = $this->evaluate($set);
+        
+        foreach ($set as $name => $palette) {
+            // Preserve numeric keys (50, 100, etc.) while merging
+            $colors[$name] = ($colors[$name] ?? []) + $palette;
+        }
+    }
+    
+    return $colors;
+}
+```
+
+## Brand Name
+
+Customize the application name displayed in the chat:
+
+```php
+Panel::make('admin')
+    ->brandName('My App Chat')
+```
+
+Use a closure for dynamic names:
+
+```php
+Panel::make('admin')
+    ->brandName(fn () => config('app.name'))
+```
+
+## Favicon
+
+Set a custom favicon for the chat interface:
+
+```php
+Panel::make('admin')
+    ->favicon(asset('favicon.ico'))
+```
+
+Use different favicons per environment:
+
+```php
+Panel::make('admin')
+    ->favicon(fn () => app()->environment('production')
+        ? asset('favicon-prod.ico')
+        : asset('favicon-dev.ico')
+    )
+```
+
+## Custom Heading
+
+Set a custom heading for the chat list:
+
+```php
+Panel::make('admin')
+    ->heading('Messages')
+```
+
+Dynamic headings:
+
+```php
+Panel::make('admin')
+    ->heading(fn () => auth()->user()?->is_admin ? 'Admin Chat' : 'Messages')
+```
+
+Remove the heading entirely:
+
+```php
+Panel::make('admin')
+    ->heading(null)
+```
+
+## Emoji Picker
+
+Enable or disable the emoji picker:
+
+```php
+Panel::make('admin')
+    ->emojiPicker()  // Enable
+    // or
+    ->emojiPicker(false)  // Disable
+```
+
+## Heart Reaction
+
+Enable quick heart reactions:
+
+```php
+Panel::make('admin')
+    ->heart()  // Enable heart button
+    // or
+    ->heart(false)  // Disable
+```
+
+## Layout Options
+
+Customize the chat layout:
+
+```php
+Panel::make('admin')
+    ->layout('modern')  // Use modern layout
+```
+
+<Note>
+Layout options depend on your WireChat version. Check documentation for available layouts.
+</Note>
+
+## Tailwind Integration
+
+WireChat uses Tailwind CSS for styling. Colors are applied using Tailwind classes:
+
+```html
+<!-- Example color application -->
+<div class="bg-primary-500 text-white">
+    <!-- Primary color background -->
+</div>
+
+<div class="border-primary-600">
+    <!-- Primary color border -->
+</div>
+```
+
+## Publishing Views
+
+For complete customization, publish WireChat views:
+
+```bash
+php artisan vendor:publish --tag=wirechat-views
+```
+
+Views will be copied to `resources/views/vendor/wirechat`.
+
+### Customize Specific Views
+
+```bash
+# Publish only chat view
+php artisan vendor:publish --tag=wirechat-views --path=resources/views/livewire/chat
+```
+
+## Custom CSS
+
+Add custom styles to your application:
+
+```css
+/* resources/css/app.css */
+
+/* Customize chat bubbles */
+.wirechat-message-sent {
+    @apply bg-blue-500 text-white rounded-2xl;
+}
+
+.wirechat-message-received {
+    @apply bg-gray-200 text-gray-900 rounded-2xl;
+}
+
+/* Customize chat input */
+.wirechat-input {
+    @apply border-2 border-gray-300 focus:border-blue-500 rounded-full;
+}
+
+/* Customize conversation list */
+.wirechat-conversation-item {
+    @apply hover:bg-gray-100 transition-colors duration-200;
+}
+```
+
+## Dark Mode Support
+
+Implement dark mode for your chat:
+
+```php
+Panel::make('admin')
+    ->colors([
+        'primary' => [
+            // Light mode colors
+            500 => '#3b82f6',
+        ],
+        'dark' => [
+            // Dark mode overrides
+            'bg' => '#1a1a1a',
+            'text' => '#ffffff',
+        ],
+    ])
+```
+
+### Dark Mode CSS
+
+```css
+/* resources/css/app.css */
+
+@media (prefers-color-scheme: dark) {
+    .wirechat-container {
+        @apply bg-gray-900 text-white;
+    }
+    
+    .wirechat-message-received {
+        @apply bg-gray-800 text-gray-100;
+    }
+    
+    .wirechat-input {
+        @apply bg-gray-800 border-gray-700 text-white;
+    }
+}
+```
+
+## Component-Level Customization
+
+Customize individual Livewire components:
+
+```php
+use Wirechat\Wirechat\Livewire\Chats\Chats;
+
+class CustomChats extends Chats
+{
+    public function render()
+    {
+        return view('livewire.custom-chats');
+    }
+}
+```
+
+Register your custom component:
+
+```php
+// In a service provider
+Livewire::component('wirechat::chats', CustomChats::class);
+```
+
+## Avatar Customization
+
+Customize user avatars in the chat:
+
+```php
+// In your User model
+public function getWirechatAvatarUrlAttribute(): ?string
+{
+    return $this->profile_photo_url ?? "https://ui-avatars.com/api/?name={$this->name}";
+}
+```
+
+Use Gravatar:
+
+```php
+public function getWirechatAvatarUrlAttribute(): ?string
+{
+    $hash = md5(strtolower(trim($this->email)));
+    return "https://www.gravatar.com/avatar/{$hash}?d=mp&s=200";
+}
+```
+
+## Message Styling
+
+Customize message appearance through views:
+
+```blade
+{{-- resources/views/vendor/wirechat/components/message.blade.php --}}
+
+<div class="
+    {{ $message->ownedBy(auth()->user()) 
+        ? 'bg-blue-500 text-white ml-auto' 
+        : 'bg-gray-200 text-gray-900 mr-auto' 
+    }}
+    rounded-2xl px-4 py-2 max-w-md break-words
+">
+    {{ $message->body }}
+</div>
+```
+
+## Timestamp Formatting
+
+Customize how timestamps are displayed:
+
+```php
+// In a Blade view or component
+{{ $message->created_at->diffForHumans() }}
+{{ $message->created_at->format('g:i A') }}
+{{ $message->created_at->format('M d, Y') }}
+```
+
+## Responsive Design
+
+WireChat is mobile-responsive by default. Customize breakpoints:
+
+```css
+/* resources/css/app.css */
+
+/* Mobile */
+@media (max-width: 640px) {
+    .wirechat-sidebar {
+        @apply hidden;
+    }
+    
+    .wirechat-chat {
+        @apply w-full;
+    }
+}
+
+/* Tablet */
+@media (min-width: 641px) and (max-width: 1024px) {
+    .wirechat-sidebar {
+        @apply w-1/3;
+    }
+    
+    .wirechat-chat {
+        @apply w-2/3;
+    }
+}
+
+/* Desktop */
+@media (min-width: 1025px) {
+    .wirechat-sidebar {
+        @apply w-1/4;
+    }
+    
+    .wirechat-chat {
+        @apply w-3/4;
+    }
+}
+```
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Consistent Colors" icon="swatchbook">
+    Use your application's existing color palette for cohesive design
+  </Card>
+  <Card title="Accessibility" icon="universal-access">
+    Ensure sufficient color contrast for readability
+  </Card>
+  <Card title="Performance" icon="gauge-high">
+    Minimize custom CSS and leverage Tailwind's JIT compiler
+  </Card>
+  <Card title="Testing" icon="vial">
+    Test theming in both light and dark modes
+  </Card>
+</CardGroup>
+
+## Theme Examples
+
+### Professional Theme
+
+```php
+Panel::make('admin')
+    ->colors([
+        'primary' => [
+            500 => '#1e3a8a',  // Navy blue
+            600 => '#1e40af',
+        ],
+    ])
+    ->brandName('Enterprise Chat')
+    ->heading('Messages')
+    ->emojiPicker(false)  // Professional environment
+```
+
+### Playful Theme
+
+```php
+Panel::make('admin')
+    ->colors([
+        'primary' => [
+            500 => '#ec4899',  // Pink
+            600 => '#db2777',
+        ],
+    ])
+    ->brandName('Fun Chat!')
+    ->emojiPicker()
+    ->heart()
+```
+
+### Minimal Theme
+
+```php
+Panel::make('admin')
+    ->colors([
+        'primary' => [
+            500 => '#000000',  // Black
+            600 => '#1a1a1a',
+        ],
+    ])
+    ->brandName(null)
+    ->heading(null)
+    ->emojiPicker(false)
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Configuration" icon="gear" href="/configuration/panels">
+    Explore all available panel configuration options
+  </Card>
+  <Card title="User Setup" icon="user-gear" href="/getting-started/user-setup">
+    Customize user profile information
+  </Card>
+  <Card title="Components" icon="puzzle-piece" href="/advanced/components">
+    Learn about WireChat Livewire components
+  </Card>
+  <Card title="Views" icon="eye" href="/advanced/views">
+    Customize Blade views and templates
+  </Card>
+</CardGroup>

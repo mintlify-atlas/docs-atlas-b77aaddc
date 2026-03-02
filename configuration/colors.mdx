@@ -1,0 +1,331 @@
+---
+title: Color Configuration
+description: Customize WireChat panel colors with built-in palettes or custom color schemes
+---
+
+## Overview
+
+WireChat uses a comprehensive color system based on OKLCH color values, providing 22 built-in color palettes. Each palette includes 11 shades from 50 (lightest) to 950 (darkest).
+
+## Built-in Color Palettes
+
+WireChat includes all Tailwind CSS color palettes:
+
+### Neutral Colors
+
+<CodeGroup>
+```php Slate
+use Wirechat\Wirechat\Support\Color;
+
+$panel->colors([
+    'primary' => Color::Slate,
+]);
+```
+
+```php Gray
+use Wirechat\Wirechat\Support\Color;
+
+$panel->colors([
+    'primary' => Color::Gray,
+]);
+```
+
+```php Zinc
+use Wirechat\Wirechat\Support\Color;
+
+$panel->colors([
+    'primary' => Color::Zinc,
+]);
+```
+
+```php Neutral
+use Wirechat\Wirechat\Support\Color;
+
+$panel->colors([
+    'primary' => Color::Neutral,
+]);
+```
+
+```php Stone
+use Wirechat\Wirechat\Support\Color;
+
+$panel->colors([
+    'primary' => Color::Stone,
+]);
+```
+</CodeGroup>
+
+### Primary Colors
+
+<Tabs>
+  <Tab title="Red/Orange">
+    - `Color::Red`
+    - `Color::Orange`
+    - `Color::Amber`
+    - `Color::Yellow`
+  </Tab>
+  <Tab title="Green">
+    - `Color::Lime`
+    - `Color::Green`
+    - `Color::Emerald`
+    - `Color::Teal`
+  </Tab>
+  <Tab title="Blue">
+    - `Color::Cyan`
+    - `Color::Sky`
+    - `Color::Blue`
+    - `Color::Indigo`
+  </Tab>
+  <Tab title="Purple/Pink">
+    - `Color::Violet`
+    - `Color::Purple`
+    - `Color::Fuchsia`
+    - `Color::Pink`
+    - `Color::Rose`
+  </Tab>
+</Tabs>
+
+## Configuring Colors
+
+### Single Color
+
+Apply a single color palette to your panel:
+
+```php
+use Wirechat\Wirechat\Panel;
+use Wirechat\Wirechat\PanelProvider;
+use Wirechat\Wirechat\Support\Color;
+
+class AdminPanelProvider extends PanelProvider
+{
+    public function panel(Panel $panel): Panel
+    {
+        return $panel
+            ->id('admin')
+            ->path('admin')
+            ->colors([
+                'primary' => Color::Blue,
+            ]);
+    }
+}
+```
+
+### Multiple Colors
+
+Define multiple color roles:
+
+```php
+return $panel
+    ->id('admin')
+    ->path('admin')
+    ->colors([
+        'primary' => Color::Blue,
+        'secondary' => Color::Slate,
+        'success' => Color::Green,
+        'warning' => Color::Amber,
+        'danger' => Color::Red,
+    ]);
+```
+
+### Multiple Color Configurations
+
+You can call the `colors()` method multiple times to merge color palettes:
+
+```php
+return $panel
+    ->id('admin')
+    ->path('admin')
+    ->colors([
+        'primary' => Color::Blue,
+        'secondary' => Color::Slate,
+    ])
+    ->colors([
+        'accent' => Color::Violet,
+    ]);
+```
+
+## Custom Colors
+
+Create custom color palettes by providing all 11 shade values (50-950) using OKLCH format:
+
+```php
+return $panel
+    ->id('admin')
+    ->path('admin')
+    ->colors([
+        'brand' => [
+            50 => 'oklch(0.984 0.003 247.858)',
+            100 => 'oklch(0.968 0.007 247.896)',
+            200 => 'oklch(0.929 0.013 255.508)',
+            300 => 'oklch(0.869 0.022 252.894)',
+            400 => 'oklch(0.704 0.04 256.788)',
+            500 => 'oklch(0.554 0.046 257.417)',
+            600 => 'oklch(0.446 0.043 257.281)',
+            700 => 'oklch(0.372 0.044 257.287)',
+            800 => 'oklch(0.279 0.041 260.031)',
+            900 => 'oklch(0.208 0.042 265.755)',
+            950 => 'oklch(0.129 0.042 264.695)',
+        ],
+    ]);
+```
+
+<Warning>
+Custom color palettes must include all 11 shade values (50, 100, 200, 300, 400, 500, 600, 700, 800, 900, 950).
+</Warning>
+
+## Dynamic Colors
+
+Use closures for dynamic color configuration:
+
+```php
+return $panel
+    ->id('admin')
+    ->path('admin')
+    ->colors(function () {
+        return [
+            'primary' => auth()->user()?->theme === 'ocean' 
+                ? Color::Blue 
+                : Color::Slate,
+        ];
+    });
+```
+
+## Color System Reference
+
+The `Color` class provides constants for all available palettes:
+
+```php
+namespace Wirechat\Wirechat\Support;
+
+class Color
+{
+    // Neutral colors
+    public const Slate = [/* ... */];
+    public const Gray = [/* ... */];
+    public const Zinc = [/* ... */];
+    public const Neutral = [/* ... */];
+    public const Stone = [/* ... */];
+    
+    // Primary colors
+    public const Red = [/* ... */];
+    public const Orange = [/* ... */];
+    public const Amber = [/* ... */];
+    public const Yellow = [/* ... */];
+    public const Lime = [/* ... */];
+    public const Green = [/* ... */];
+    public const Emerald = [/* ... */];
+    public const Teal = [/* ... */];
+    public const Cyan = [/* ... */];
+    public const Sky = [/* ... */];
+    public const Blue = [/* ... */];
+    public const Indigo = [/* ... */];
+    public const Violet = [/* ... */];
+    public const Purple = [/* ... */];
+    public const Fuchsia = [/* ... */];
+    public const Pink = [/* ... */];
+    public const Rose = [/* ... */];
+    
+    /**
+     * Get all available colors
+     * @return array<string, array>
+     */
+    public static function all(): array;
+}
+```
+
+## Accessing Colors
+
+Retrieve all colors configured for a panel:
+
+```php
+use Wirechat\Wirechat\Facades\Wirechat;
+
+$panel = Wirechat::getPanel('admin');
+$colors = $panel->getColors();
+
+// Returns:
+// [
+//     'primary' => [
+//         50 => 'oklch(...)',
+//         100 => 'oklch(...)',
+//         // ...
+//     ],
+// ]
+```
+
+## OKLCH Color Format
+
+WireChat uses the OKLCH color format, which provides:
+
+- **Perceptually uniform**: Equal changes in lightness look equally different
+- **Wide gamut**: Access to all colors displayable on modern screens
+- **Predictable**: Easier to create harmonious color schemes
+
+Format: `oklch(lightness chroma hue)`
+
+- **Lightness**: 0-1 (0 = black, 1 = white)
+- **Chroma**: 0-0.4 (0 = grayscale, higher = more saturated)
+- **Hue**: 0-360 (color angle)
+
+<Note>
+OKLCH is automatically converted to the appropriate format by modern browsers. For older browsers, consider using a CSS preprocessor or PostCSS plugin.
+</Note>
+
+## Complete Example
+
+```php
+namespace App\Providers\Wirechat;
+
+use Wirechat\Wirechat\Panel;
+use Wirechat\Wirechat\PanelProvider;
+use Wirechat\Wirechat\Support\Color;
+
+class AdminPanelProvider extends PanelProvider
+{
+    public function panel(Panel $panel): Panel
+    {
+        return $panel
+            ->id('admin')
+            ->path('admin')
+            ->default()
+            ->colors([
+                'primary' => Color::Blue,
+                'secondary' => Color::Slate,
+                'success' => Color::Green,
+                'warning' => Color::Amber,
+                'danger' => Color::Red,
+                'info' => Color::Sky,
+            ]);
+    }
+}
+```
+
+## Per-Panel Colors
+
+Each panel can have its own color scheme:
+
+```php
+// Admin Panel - Blue theme
+class AdminPanelProvider extends PanelProvider
+{
+    public function panel(Panel $panel): Panel
+    {
+        return $panel
+            ->id('admin')
+            ->path('admin')
+            ->colors(['primary' => Color::Blue]);
+    }
+}
+
+// Support Panel - Green theme
+class SupportPanelProvider extends PanelProvider
+{
+    public function panel(Panel $panel): Panel
+    {
+        return $panel
+            ->id('support')
+            ->path('support')
+            ->colors(['primary' => Color::Green]);
+    }
+}
+```

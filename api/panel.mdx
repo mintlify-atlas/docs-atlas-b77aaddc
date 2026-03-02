@@ -1,0 +1,214 @@
+---
+title: Panel
+description: Main configuration class for WireChat panels
+---
+
+The `Panel` class is the central configuration object for WireChat. It uses multiple traits to provide a comprehensive API for customizing chat functionality, appearance, and behavior.
+
+## Namespace
+
+```php
+Wirechat\Wirechat\Panel
+```
+
+## Overview
+
+The Panel class orchestrates all WireChat configuration through modular traits, providing methods to configure authentication, broadcasting, colors, layouts, middleware, and more.
+
+## Creating a Panel
+
+### make()
+
+Create a new Panel instance using the service container.
+
+```php
+public static function make(): static
+```
+
+<ParamField body="return" type="static">
+  A new Panel instance resolved from the application container
+</ParamField>
+
+**Example:**
+```php
+$panel = Panel::make()
+    ->id('admin-chat')
+    ->heading('Admin Chat Panel');
+```
+
+## Configuration Methods
+
+### default()
+
+Mark this panel as the default panel.
+
+```php
+public function default(bool|Closure $condition = true): static
+```
+
+<ParamField body="condition" type="bool|Closure" default="true">
+  Whether this panel should be the default. Can be a boolean or a Closure that returns a boolean.
+</ParamField>
+
+**Example:**
+```php
+Panel::make()
+    ->default(true);
+
+// Or with a closure
+Panel::make()
+    ->default(fn() => auth()->user()->isAdmin());
+```
+
+### isDefault()
+
+Check if this panel is set as the default.
+
+```php
+public function isDefault(): bool
+```
+
+<ResponseField name="return" type="bool">
+  Returns true if this panel is the default
+</ResponseField>
+
+### register()
+
+Register the panel with WireChat. This method is called internally during panel setup.
+
+```php
+public function register(): void
+```
+
+## Available Traits
+
+The Panel class uses the following traits to provide comprehensive functionality:
+
+<Expandable title="EvaluatesClosures">
+  Provides the ability to evaluate closures for dynamic configuration values.
+</Expandable>
+
+<Expandable title="HasActions">
+  Configures custom actions available in the chat interface.
+</Expandable>
+
+<Expandable title="HasAttachments">
+  Controls file attachment functionality and settings.
+</Expandable>
+
+<Expandable title="HasAuth">
+  Manages authentication configuration for the chat panel.
+</Expandable>
+
+<Expandable title="HasBroadcasting">
+  Configures real-time broadcasting settings for live updates.
+</Expandable>
+
+<Expandable title="HasChatActions">
+  Defines actions available within individual chats.
+</Expandable>
+
+<Expandable title="HasChatMiddleware">
+  Registers middleware for chat operations.
+</Expandable>
+
+<Expandable title="HasChatsSearch">
+  Configures search functionality for conversations.
+</Expandable>
+
+<Expandable title="HasColors">
+  Customizes the color scheme of the chat interface.
+</Expandable>
+
+<Expandable title="HasDeleteMessageActions">
+  Controls message deletion behavior and permissions.
+</Expandable>
+
+<Expandable title="HasEmojiPicker">
+  Enables and configures the emoji picker component.
+</Expandable>
+
+<Expandable title="HasFavicon">
+  Sets custom favicon for the chat panel.
+</Expandable>
+
+<Expandable title="HasGroupActions">
+  Defines actions available for group management.
+</Expandable>
+
+<Expandable title="HasGroups">
+  Configures group chat functionality.
+</Expandable>
+
+<Expandable title="HasHeading">
+  Sets the heading/title for the chat panel.
+</Expandable>
+
+<Expandable title="HasHeart">
+  Enables the heart/like reaction feature.
+</Expandable>
+
+<Expandable title="HasId">
+  Assigns a unique identifier to the panel.
+</Expandable>
+
+<Expandable title="HasLayout">
+  Configures the layout and appearance of the chat interface.
+</Expandable>
+
+<Expandable title="HasMiddleware">
+  Registers global middleware for the panel.
+</Expandable>
+
+<Expandable title="HasRoutes">
+  Defines custom routes for the chat panel.
+</Expandable>
+
+<Expandable title="HasSearchableAttributes">
+  Configures which attributes are searchable in the chat.
+</Expandable>
+
+<Expandable title="HasUsersSearch">
+  Configures user search functionality.
+</Expandable>
+
+<Expandable title="HasWebPushNotifications">
+  Enables and configures web push notifications.
+</Expandable>
+
+## Properties
+
+<ParamField body="isDefault" type="bool|Closure" default="false">
+  Determines whether this panel is the default panel. Protected property evaluated through the `isDefault()` method.
+</ParamField>
+
+## Example Usage
+
+```php
+use Wirechat\Wirechat\Panel;
+
+// Create a fully configured panel
+$panel = Panel::make()
+    ->id('support-chat')
+    ->default(true)
+    ->heading('Customer Support')
+    ->colors([
+        'primary' => '#3b82f6',
+        'secondary' => '#64748b',
+    ]);
+
+// Check if it's the default panel
+if ($panel->isDefault()) {
+    // Panel-specific logic
+}
+
+// Register the panel
+$panel->register();
+```
+
+## Notes
+
+- The Panel class is designed to be extended and customized through its various traits
+- All configuration methods typically return `$this` for method chaining
+- Closures can be used throughout for dynamic configuration based on runtime context
+- The `make()` method uses Laravel's service container for dependency injection

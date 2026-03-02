@@ -1,0 +1,274 @@
+---
+title: User Interface
+description: Customize the look and feel of WireChat including colors, layout, and branding
+---
+
+## Overview
+
+WireChat provides extensive UI customization options through the Panel configuration. You can customize colors, branding, layout, and visual elements to match your application's design system.
+
+## Colors
+
+Customize the primary color palette used throughout WireChat.
+
+### Basic Color Configuration
+
+```php app/Providers/WirechatServiceProvider.php
+use Wirechat\Wirechat\Panel;
+
+Panel::make()
+    ->colors([
+        'primary' => [
+            50 => '#f0f9ff',
+            100 => '#e0f2fe',
+            200 => '#bae6fd',
+            300 => '#7dd3fc',
+            400 => '#38bdf8',
+            500 => '#0ea5e9',
+            600 => '#0284c7',
+            700 => '#0369a1',
+            800 => '#075985',
+            900 => '#0c4a6e',
+            950 => '#082f49',
+        ],
+    ]);
+```
+
+### Using CSS Variables
+
+Colors are accessible in Blade templates via CSS variables:
+
+```blade resources/views/livewire/chat/chat.blade.php
+@php
+$primaryColor = isset($this->panel()->getColors()['primary']) 
+    ? $this->panel()->getColors()['primary'][500] 
+    : 'oklch(0.623 0.214 259.815)';
+@endphp
+
+<div style="background-color: var(--wc-brand-primary)">
+    <!-- Your content -->
+</div>
+```
+
+<Note>
+The default primary color uses OKLCH color space for better perceptual uniformity.
+</Note>
+
+## Branding
+
+### Panel Heading
+
+Set a custom heading for your chat interface:
+
+```php
+Panel::make()
+    ->heading('Customer Support');
+```
+
+### Favicon
+
+Customize the favicon displayed in the browser tab:
+
+```php
+Panel::make()
+    ->favicon(asset('images/chat-icon.png'));
+```
+
+## Layout Customization
+
+### Custom Layout
+
+Use your own layout file instead of the default:
+
+```php
+Panel::make()
+    ->layout('layouts.custom-chat');
+```
+
+Your custom layout should include the necessary Livewire scripts:
+
+```blade resources/views/layouts/custom-chat.blade.php
+<!DOCTYPE html>
+<html lang="{{ str_replace('_', '-', app()->getLocale()) }}">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{ config('app.name') }} - Chat</title>
+    
+    @livewireStyles
+</head>
+<body>
+    {{ $slot }}
+    
+    @livewireScripts
+</body>
+</html>
+```
+
+### Home Redirect Action
+
+Add a home button to navigate back to your main application:
+
+```php
+Panel::make()
+    ->redirectToHomeAction();
+```
+
+<Tip>
+The home redirect action is automatically hidden when using WireChat as a widget.
+</Tip>
+
+## Message Styling
+
+Messages are automatically styled based on sender with different styles for:
+- Messages from the authenticated user (right-aligned with primary color)
+- Messages from other users (left-aligned with secondary background)
+- Sequential messages (grouped with connected borders)
+
+### Message Border Radius
+
+The message component uses dynamic border radius based on position:
+
+```blade resources/views/livewire/chat/partials/message.blade.php
+@class([
+    // First message on RIGHT
+    'rounded-br-md rounded-tr-2xl' => ($isSameAsNext && $isNotSameAsPrevious && $belongsToAuth),
+    
+    // Middle message on RIGHT
+    'rounded-r-md' => ($isSameAsPrevious && $belongsToAuth),
+    
+    // Standalone message RIGHT
+    'rounded-br-xl rounded-r-xl' => ($isNotSameAsPrevious && $isNotSameAsNext && $belongsToAuth),
+])
+```
+
+## Avatar Component
+
+Customize user avatars with built-in fallbacks:
+
+```blade
+<x-wirechat::avatar 
+    :src="$user->avatar_url" 
+    class="w-10 h-10"
+/>
+```
+
+### Group Avatars
+
+```blade
+<x-wirechat::avatar 
+    :src="$group->cover_url" 
+    :group="true"
+    class="w-12 h-12"
+/>
+```
+
+### Avatar with Status Indicator
+
+```blade
+<x-wirechat::avatar 
+    :src="$user->avatar_url" 
+    :disappearing="true"
+    class="w-10 h-10"
+/>
+```
+
+## Emoji Picker
+
+Enable and configure the emoji picker:
+
+<Tabs>
+  <Tab title="Basic Setup">
+    ```php
+    Panel::make()
+        ->emojiPicker();
+    ```
+  </Tab>
+  <Tab title="Floating Position">
+    ```php
+    use Wirechat\Wirechat\Support\Enums\EmojiPickerPosition;
+    
+    Panel::make()
+        ->emojiPicker(
+            condition: true,
+            position: EmojiPickerPosition::Floating
+        );
+    ```
+  </Tab>
+  <Tab title="Docked Position">
+    ```php
+    use Wirechat\Wirechat\Support\Enums\EmojiPickerPosition;
+    
+    Panel::make()
+        ->emojiPicker(
+            condition: true,
+            position: EmojiPickerPosition::Docked
+        );
+    ```
+  </Tab>
+</Tabs>
+
+### Custom Emoji Picker Styles
+
+The emoji picker can be customized using CSS variables:
+
+```css
+emoji-picker {
+    --background: none !important;
+    --border-radius: 12px;
+    --input-border-color: rgb(229 229 229);
+    --num-columns: 8;
+    --emoji-size: 1.5rem;
+    --indicator-color: #9ca3af;
+}
+
+@media (prefers-color-scheme: dark) {
+    emoji-picker {
+        --background: none !important;
+        --input-border-color: var(--wc-dark-border);
+        --input-font-color: white;
+        --indicator-color: var(--wc-dark-accent);
+    }
+}
+```
+
+## Dark Mode
+
+WireChat automatically supports dark mode using Tailwind's dark mode classes:
+
+```blade
+<div class="bg-[var(--wc-light-primary)] dark:bg-[var(--wc-dark-primary)]">
+    <!-- Content adapts to dark mode -->
+</div>
+```
+
+### CSS Variables for Dark Mode
+
+- `--wc-light-primary`: Light mode primary background
+- `--wc-light-secondary`: Light mode secondary background
+- `--wc-dark-primary`: Dark mode primary background
+- `--wc-dark-secondary`: Dark mode secondary background
+- `--wc-dark-border`: Dark mode border color
+- `--wc-dark-accent`: Dark mode accent color
+- `--wc-brand-primary`: Your custom primary color
+
+## Scrollbar Theming
+
+WireChat includes custom scrollbar styling:
+
+```blade
+<div class="overflow-y-auto wc-scrollbar-theme">
+    <!-- Scrollable content -->
+</div>
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Components" icon="puzzle-piece" href="/customization/components">
+    Extend and customize Livewire components
+  </Card>
+  <Card title="Actions" icon="bolt" href="/customization/actions">
+    Configure chat and group actions
+  </Card>
+</CardGroup>

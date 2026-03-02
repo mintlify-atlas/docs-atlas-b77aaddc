@@ -1,0 +1,205 @@
+---
+title: 'make:wirechat-panel'
+description: 'Create a new WireChat panel provider'
+---
+
+## Overview
+
+The `make:wirechat-panel` command creates a new panel provider class that allows you to configure isolated chat instances with different settings, routes, and permissions.
+
+## Command Signature
+
+```bash
+php artisan make:wirechat-panel {id?}
+```
+
+## Arguments
+
+<ParamField path="id" type="string" optional>
+  The panel identifier (e.g., `admin`, `support`, `team`). If not provided, you'll be prompted to enter it.
+  
+  **Requirements:**
+  - Must start with a letter
+  - Can contain only letters, numbers, and underscores
+  - Maximum 255 characters
+  - Will be automatically converted to kebab-case
+</ParamField>
+
+## What It Does
+
+<Steps>
+  <Step title="Validate Panel ID">
+    Validates the panel ID format and ensures it meets naming requirements.
+  </Step>
+  
+  <Step title="Generate Provider Class">
+    Creates a panel provider class in `app/Providers/Wirechat/` with the name `{PanelId}PanelProvider.php`.
+  </Step>
+  
+  <Step title="Register Provider">
+    Automatically registers the provider in `bootstrap/providers.php` (Laravel 11+) or `config/app.php` (Laravel 10 and below).
+  </Step>
+  
+  <Step title="Set Default Panel">
+    If this is the first panel, it will be marked as the default panel automatically.
+  </Step>
+</Steps>
+
+## Interactive Prompts
+
+### Panel ID Input
+
+If you don't provide the panel ID as an argument:
+
+```bash
+ What is the panel ID?: admin
+```
+
+### Overwrite Existing File
+
+If a panel provider with the same name already exists:
+
+```bash
+The file [app/Providers/Wirechat/AdminPanelProvider.php] already exists. Do you want to overwrite it? (yes/no) [no]
+```
+
+## Examples
+
+### Create Admin Chat Panel
+
+```bash
+php artisan make:wirechat-panel admin
+```
+
+**Output:**
+```bash
+Wirechat panel [App\Providers\Wirechat\AdminPanelProvider] created successfully.
+We've tried to add [app/Providers/Wirechat/AdminPanelProvider.php] into your [bootstrap/providers.php] file.
+```
+
+### Create Support Chat Panel
+
+```bash
+php artisan make:wirechat-panel support
+```
+
+This creates `app/Providers/Wirechat/SupportPanelProvider.php`:
+
+```php
+<?php
+
+namespace App\Providers\Wirechat;
+
+use Wirechat\Wirechat\Panel;
+use Wirechat\Wirechat\PanelProvider;
+use Wirechat\Wirechat\Support\Color;
+
+class SupportPanelProvider extends PanelProvider
+{
+    public function panel(Panel $panel): Panel
+    {
+        return $panel
+            ->id('support')
+            ->path('support')
+            ->colors([
+                'primary' => Color::Blue,
+            ]);
+    }
+}
+```
+
+### Interactive Panel Creation
+
+```bash
+php artisan make:wirechat-panel
+```
+
+You'll be prompted:
+```bash
+ What is the panel ID?: team-chats
+
+Wirechat panel [App\Providers\Wirechat\TeamChatsPanelProvider] created successfully.
+```
+
+## Panel ID Validation
+
+The command validates panel IDs with the following rules:
+
+<CodeGroup>
+```bash Valid IDs
+admin
+support
+teamChat
+customer_service
+help_desk
+```
+
+```bash Invalid IDs
+123admin      # Cannot start with number
+admin-panel   # No hyphens allowed (use underscore)
+admin panel   # No spaces
+@admin        # No special characters
+```
+</CodeGroup>
+
+## Error Messages
+
+### Invalid Panel ID Format
+
+```bash
+The ID must start with a letter and contain only letters, numbers, or underscores.
+```
+
+### Missing Stub File
+
+```bash
+Stub file not found at: /path/to/stubs/PanelProvider.stub
+```
+
+### Provider Registration Failed
+
+```bash
+Failed to register provider: [error message]
+```
+
+<Note>
+If the provider file was created but registration failed, the command will automatically delete the generated file to maintain a clean state.
+</Note>
+
+## Post-Creation Steps
+
+After creating a panel:
+
+1. Customize the panel provider:
+   ```php
+   return $panel
+       ->id('admin')
+       ->path('admin/chats')
+       ->middleware(['web', 'auth', 'admin'])
+       ->colors([
+           'primary' => Color::Red,
+       ])
+       ->maxGroupMembers(50);
+   ```
+
+2. Access your panel at `/admin/chats` (or your configured path)
+
+3. Configure panel-specific settings like middleware, guards, and colors
+
+## Laravel Version Compatibility
+
+<ParamField path="Laravel 11+" type="version">
+  Providers are registered in `bootstrap/providers.php`
+</ParamField>
+
+<ParamField path="Laravel 10 and below" type="version">
+  Providers are registered in `config/app.php` in the `providers` array
+</ParamField>
+
+<Warning>
+The command will warn you if automatic registration may have failed. Always verify that your panel provider is properly registered in the appropriate file for your Laravel version.
+</Warning>
+
+## Source Reference
+
+Command implementation: `~/workspace/source/src/Console/Commands/MakePanelCommand.php:17`

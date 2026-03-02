@@ -1,0 +1,176 @@
+---
+title: Panels
+description: Understanding WireChat Panels - the foundation for configuring your chat interface
+---
+
+## Overview
+
+Panels are the central configuration object in WireChat. They act as a container for all chat-related settings, behaviors, and customizations. Think of a Panel as the "control center" for your chat application.
+
+## What is a Panel?
+
+A Panel is the main entry point for configuring WireChat. It uses a fluent interface pattern that allows you to chain configuration methods together. Each Panel can be customized with colors, layouts, authentication, broadcasting, middleware, and more.
+
+```php
+use Wirechat\Wirechat\Panel;
+
+$panel = Panel::make()
+    ->default()
+    ->register();
+```
+
+## Panel Architecture
+
+The Panel class is built using multiple trait-based concerns, making it highly modular and extensible:
+
+```php
+class Panel
+{
+    use EvaluatesClosures;
+    use HasActions;
+    use HasAttachments;
+    use HasAuth;
+    use HasBroadcasting;
+    use HasChatActions;
+    use HasChatMiddleware;
+    use HasChatsSearch;
+    use HasColors;
+    use HasDeleteMessageActions;
+    use HasEmojiPicker;
+    use HasFavicon;
+    use HasGroupActions;
+    use HasGroups;
+    use HasHeading;
+    use HasHeart;
+    use HasId;
+    use HasLayout;
+    use HasMiddleware;
+    use HasRoutes;
+    use HasSearchableAttributes;
+    use HasUsersSearch;
+    use HasWebPushNotifications;
+}
+```
+
+## Creating a Panel
+
+Panels are created using the static `make()` method, which leverages Laravel's service container:
+
+```php
+use Wirechat\Wirechat\Panel;
+
+// Create a new panel instance
+$panel = Panel::make();
+```
+
+<Info>
+  The `make()` method uses `app(static::class)` internally, allowing for dependency injection and singleton behavior.
+</Info>
+
+## Default Panel
+
+You can mark a panel as the default panel for your application:
+
+```php
+$panel = Panel::make()
+    ->default();
+
+// Check if a panel is default
+if ($panel->isDefault()) {
+    // This is the default panel
+}
+```
+
+The `default()` method accepts a boolean or Closure:
+
+```php
+// Conditional default
+$panel->default(fn () => auth()->user()->isAdmin());
+```
+
+## Panel Configuration Traits
+
+Each trait provides specific configuration capabilities:
+
+<Accordion title="HasAuth">
+  Configure authentication and user management for your chat.
+</Accordion>
+
+<Accordion title="HasBroadcasting">
+  Set up real-time broadcasting for live chat updates.
+</Accordion>
+
+<Accordion title="HasColors">
+  Customize the color scheme of your chat interface.
+</Accordion>
+
+<Accordion title="HasLayout">
+  Configure the visual layout and structure of the chat UI.
+</Accordion>
+
+<Accordion title="HasGroups">
+  Enable and configure group chat functionality.
+</Accordion>
+
+<Accordion title="HasAttachments">
+  Configure file upload and attachment handling.
+</Accordion>
+
+<Accordion title="HasMiddleware">
+  Add middleware to protect chat routes and actions.
+</Accordion>
+
+<Accordion title="HasWebPushNotifications">
+  Enable push notifications for chat messages.
+</Accordion>
+
+## Registration
+
+After configuring your panel, register it to apply all settings:
+
+```php
+$panel = Panel::make()
+    ->default()
+    ->register();
+```
+
+<Note>
+  The `register()` method is called to finalize the panel configuration and make it active in your application.
+</Note>
+
+## Closure Evaluation
+
+Panels support closure-based configuration through the `EvaluatesClosures` trait. This allows you to defer configuration logic until runtime:
+
+```php
+$panel->default(fn () => \Illuminate\Support\Facades\Auth::check());
+```
+
+The `evaluate()` method is used internally to resolve closures:
+
+```php
+public function isDefault(): bool
+{
+    return $this->evaluate($this->isDefault);
+}
+```
+
+## Best Practices
+
+<Tip>
+  - Create one default panel for your application
+  - Use closures for dynamic configuration based on user context
+  - Register your panel in a service provider for consistency
+  - Chain configuration methods for clean, readable setup code
+</Tip>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Conversations" icon="comments" href="/concepts/conversations">
+    Learn about conversation types and management
+  </Card>
+  <Card title="Messages" icon="message" href="/concepts/messages">
+    Understand message handling and types
+  </Card>
+</CardGroup>

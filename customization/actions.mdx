@@ -1,0 +1,534 @@
+---
+title: Actions
+description: Configure and customize chat actions, group actions, and user interactions
+---
+
+## Overview
+
+WireChat provides a flexible action system for managing chat interactions. You can enable or disable built-in actions and implement custom actions for your specific use cases.
+
+## Chat Actions
+
+Control which actions are available in chat conversations.
+
+### Create Chat Action
+
+Enable users to start new conversations:
+
+```php app/Providers/WirechatServiceProvider.php
+use Wirechat\Wirechat\Panel;
+
+Panel::make()
+    ->createChatAction();
+```
+
+The create chat action opens a modal component:
+
+```blade resources/views/components/actions/new-chat.blade.php
+<x-wirechat::actions.open-modal
+    component="wirechat.new.chat"
+    :widget="$widget"
+    :panel="$panel"
+>
+    {{ $slot }}
+</x-wirechat::actions.open-modal>
+```
+
+<Tip>
+Customize the new chat modal by extending the `Wirechat\Livewire\New\Chat` component.
+</Tip>
+
+### Clear Chat Action
+
+Allow users to clear conversation history:
+
+```php
+Panel::make()
+    ->clearChatAction();
+```
+
+Implementation in the Chat component:
+
+```php src/Livewire/Chat/Chat.php
+public function clearConversation()
+{
+    abort_unless(auth()->check(), 401);
+    
+    // Clear conversation for the authenticated user
+    $this->conversation->clearFor($this->auth);
+    
+    $this->reset('loadedMessages', 'media', 'files', 'body');
+    
+    $this->handleComponentTermination(
+        redirectRoute: $this->panel()->chatsRoute(),
+        events: [
+            'close-chat',
+            Chats::class => 'refresh',
+        ]
+    );
+}
+```
+
+### Delete Chat Action
+
+Allow users to delete conversations:
+
+```php
+Panel::make()
+    ->deleteChatAction();
+```
+
+```php src/Livewire/Chat/Chat.php
+public function deleteConversation()
+{
+    abort_unless(auth()->check(), 401);
+    
+    // Delete conversation for the authenticated user
+    $this->conversation->deleteFor($this->auth);
+    
+    $this->handleComponentTermination(
+        redirectRoute: $this->panel()->chatsRoute(),
+        events: [
+            'close-chat',
+            Chats::class => ['chat-deleted', [$this->conversation->id]],
+        ]
+    );
+}
+```
+
+### Disable All Chat Actions
+
+```php
+Panel::make()
+    ->createChatAction(false)
+    ->clearChatAction(false)
+    ->deleteChatAction(false);
+```
+
+## Delete Message Actions
+
+Configure message deletion permissions:
+
+### Delete for Me
+
+Allow any participant to hide messages from their view:
+
+```php src/Livewire/Chat/Chat.php
+public function deleteForMe(string $id): void
+{
+    $messageId = decrypt($id);
+    $message = Message::where('id', $messageId)->firstOrFail();
+    
+    // Verify user belongs to conversation
+    abort_unless(auth()->check(), 401);
+    abort_unless($this->auth->belongsToConversation($message->conversation), 403);
+    
+    // Remove from UI
+    $this->removeMessage($message);
+    
+    // Soft delete for user
+    $message->deleteFor($this->auth);
+    
+    // Refresh chat list
+    $this->dispatch('refresh')->to(Chats::class);
+}
+```
+
+### Delete for Everyone
+
+Allow message owners or admins to delete messages for all participants:
+
+```php src/Livewire/Chat/Chat.php
+public function deleteForEveryone(string $id): void
+{
+    $messageId = decrypt($id);
+    $message = Message::where('id', $messageId)->firstOrFail();
+    $authParticipant = $this->conversation->participant($this->auth);
+    
+    abort_unless(auth()->check(), 401);
+    
+    // Allow if user owns message OR is admin in group
+    abort_unless(
+        $message->ownedBy($this->auth) || 
+        ($authParticipant->isAdmin() && $this->conversation->isGroup()), 
+        403
+    );
+    
+    // Remove from UI
+    $this->removeMessage($message);
+    
+    // Broadcast deletion event
+    MessageDeleted::dispatch($message);
+    
+    // Soft delete if has replies, otherwise force delete
+    if ($message->hasReply()) {
+        $message->delete();
+    } else {
+        $message->forceDelete();
+    }
+}
+```
+
+### Configure Delete Actions
+
+```php app/Providers/WirechatServiceProvider.php
+Panel::make()
+    ->deleteMessageForMe()
+    ->deleteMessageForEveryone();
+```
+
+## Group Actions
+
+Manage group conversation features:
+
+### Enable Groups
+
+```php
+Panel::make()
+    ->groups();
+```
+
+### Create Group Action
+
+Allow users to create group conversations:
+
+```php
+Panel::make()
+    ->groups()
+    ->createGroupAction();
+```
+
+### Exit Group Action
+
+Allow participants to leave group conversations:
+
+```php src/Livewire/Chat/Chat.php
+public function exitConversation()
+{
+    abort_unless(auth()->check(), 401);
+    
+    // Verify it's a group conversation
+    abort_unless(
+        $this->conversation->isGroup(), 
+        403, 
+        __('wirechat::chat.messages.cannot_exit_self_or_private_conversation')
+    );
+    
+    // Prevent owner from leaving
+    abort_if(
+        $this->auth->isOwnerOf($this->conversation), 
+        403, 
+        __('wirechat::chat.messages.owner_cannot_exit_conversation')
+    );
+    
+    // Exit conversation
+    $this->auth->exitConversation($this->conversation);
+    
+    // Redirect
+    if ($this->isWidget()) {
+        $this->dispatch('close-chat');
+    } else {
+        $this->redirect($this->panel()->chatsRoute());
+    }
+}
+```
+
+## Action Model
+
+WireChat includes an Action model for tracking user activities:
+
+```php src/Models/Action.php
+namespace Wirechat\Wirechat\Models;
+
+use Illuminate\Database\Eloquent\Model;
+use Wirechat\Wirechat\Enums\Actions;
+
+class Action extends Model
+{
+    protected $fillable = [
+        'actor_id',
+        'actor_type',
+        'actionable_id',
+        'actionable_type',
+        'type',
+        'data',
+    ];
+    
+    protected $casts = [
+        'type' => Actions::class,
+    ];
+    
+    // Polymorphic relationship to the entity being acted upon
+    public function actionable(): MorphTo
+    {
+        return $this->morphTo(null, 'actionable_type', 'actionable_id', 'id');
+    }
+    
+    // Polymorphic relationship to the actor
+    public function actor(): MorphTo
+    {
+        return $this->morphTo('actor', 'actor_type', 'actor_id', 'id');
+    }
+    
+    // Scope by actor
+    public function scopeWhereActor(Builder $query, Model $actor)
+    {
+        $query->where('actor_id', $actor->getKey())
+              ->where('actor_type', $actor->getMorphClass());
+    }
+}
+```
+
+### Tracking Custom Actions
+
+```php app/Services/ChatService.php
+use Wirechat\Wirechat\Models\Action;
+use Wirechat\Wirechat\Enums\Actions;
+
+class ChatService
+{
+    public function trackPinMessage($message, $user)
+    {
+        Action::create([
+            'actor_id' => $user->id,
+            'actor_type' => $user->getMorphClass(),
+            'actionable_id' => $message->id,
+            'actionable_type' => $message->getMorphClass(),
+            'type' => Actions::PIN_MESSAGE,
+            'data' => json_encode(['pinned_at' => now()]),
+        ]);
+    }
+}
+```
+
+## Custom Action Implementation
+
+### Creating a Star Message Action
+
+<Steps>
+  <Step title="Add Action to Enum">
+    ```php app/Enums/CustomActions.php
+    namespace App\Enums;
+    
+    enum CustomActions: string
+    {
+        case STAR_MESSAGE = 'star_message';
+        case UNSTAR_MESSAGE = 'unstar_message';
+    }
+    ```
+  </Step>
+  <Step title="Create Component Method">
+    ```php app/Livewire/CustomChat.php
+    use App\Enums\CustomActions;
+    use Wirechat\Wirechat\Models\Action;
+    
+    public function starMessage(string $id): void
+    {
+        $messageId = decrypt($id);
+        $message = Message::findOrFail($messageId);
+        
+        abort_unless($this->auth->belongsToConversation($message->conversation), 403);
+        
+        Action::create([
+            'actor_id' => $this->auth->id,
+            'actor_type' => $this->auth->getMorphClass(),
+            'actionable_id' => $message->id,
+            'actionable_type' => $message->getMorphClass(),
+            'type' => CustomActions::STAR_MESSAGE,
+        ]);
+        
+        $this->dispatch('message-starred', messageId: $message->id);
+    }
+    ```
+  </Step>
+  <Step title="Add to UI">
+    ```blade resources/views/livewire/chat/partials/message.blade.php
+    <button 
+        wire:click="starMessage('{{ encrypt($message->id) }}')"
+        class="text-yellow-500 hover:text-yellow-600"
+    >
+        <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+            <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/>
+        </svg>
+    </button>
+    ```
+  </Step>
+</Steps>
+
+## Heart/Like Action
+
+WireChat includes a built-in like action:
+
+```php src/Livewire/Chat/Chat.php
+public function sendLike()
+{
+    // Rate limit
+    $this->rateLimit();
+    
+    $message = Message::create([
+        'conversation_id' => $this->conversation->id,
+        'participant_id' => $this->authParticipant->getKey(),
+        'body' => '❤️',
+        'type' => MessageType::TEXT,
+    ]);
+    
+    // Update conversation timestamp
+    $this->conversation->touch();
+    
+    // Push to UI
+    $this->pushMessage($message);
+    
+    // Refresh and scroll
+    $this->dispatch('refresh')->to(Chats::class);
+    $this->dispatch('scroll-bottom');
+    
+    // Broadcast
+    $this->dispatchMessageCreatedEvent($message);
+}
+```
+
+### Enable Heart Action
+
+```php
+Panel::make()
+    ->heart();
+```
+
+## Conditional Actions
+
+Make actions conditional based on user roles or subscription:
+
+<Tabs>
+  <Tab title="Role-Based">
+    ```php
+    Panel::make()
+        ->createGroupAction(fn () => auth()->user()?->can('create-groups'))
+        ->deleteMessageForEveryone(fn () => auth()->user()?->isAdmin());
+    ```
+  </Tab>
+  <Tab title="Subscription-Based">
+    ```php
+    Panel::make()
+        ->groups(fn () => auth()->user()?->hasSubscription('premium'))
+        ->mediaAttachments(fn () => auth()->user()?->canUploadMedia());
+    ```
+  </Tab>
+  <Tab title="Environment-Based">
+    ```php
+    Panel::make()
+        ->groups(app()->environment('production'))
+        ->deleteMessageForEveryone(app()->environment('local'));
+    ```
+  </Tab>
+</Tabs>
+
+## Chats Search Action
+
+Enable conversation search functionality:
+
+```php
+Panel::make()
+    ->chatsSearch();
+```
+
+Search implementation in the Chats component:
+
+```php src/Livewire/Chats/Chats.php
+public function updatedSearch($value)
+{
+    $this->conversations = [];
+    $this->reset(['page', 'canLoadMore']);
+}
+
+protected function applySearchConditions($query)
+{
+    $searchableFields = $this->panel()->getSearchableAttributes();
+    
+    return $query->where(function ($query) use ($searchableFields) {
+        $query->whereHas('participants', function ($subquery) use ($searchableFields) {
+            foreach ($searchableFields as $field) {
+                $subquery->orWhere($field, 'LIKE', '%' . $this->search . '%');
+            }
+        })
+        ->orWhereHas('group', function ($groupQuery) {
+            $groupQuery->where('name', 'LIKE', '%' . $this->search . '%');
+        });
+    });
+}
+```
+
+### Configure Searchable Attributes
+
+```php
+Panel::make()
+    ->searchableAttributes(['name', 'email', 'username']);
+```
+
+## Home Redirect Action
+
+Add a button to return to your main application:
+
+```php src/Panel/Concerns/HasActions.php
+protected bool|Closure $redirectToHomeAction = false;
+
+public function redirectToHomeAction(bool|Closure $condition = true): static
+{
+    $this->redirectToHomeAction = $condition;
+    return $this;
+}
+
+public function hasRedirectToHomeAction(): bool
+{
+    return (bool) $this->evaluate($this->redirectToHomeAction);
+}
+```
+
+### Usage
+
+```php
+Panel::make()
+    ->redirectToHomeAction();
+```
+
+<Note>
+The home redirect action is automatically hidden when WireChat is used as a widget.
+</Note>
+
+## Rate Limiting Actions
+
+Protect actions from abuse:
+
+```php src/Livewire/Chat/Chat.php
+protected function rateLimit()
+{
+    $perMinute = 60;
+    
+    if (RateLimiter::tooManyAttempts('send-message:' . auth()->id(), $perMinute)) {
+        abort(429, __('wirechat::chat.messages.rate_limit'));
+    }
+    
+    RateLimiter::increment('send-message:' . auth()->id());
+}
+```
+
+## Best Practices
+
+<Tip>
+- Always verify user authorization before executing actions
+- Use rate limiting to prevent spam and abuse
+- Broadcast action events for real-time updates
+- Provide clear feedback when actions succeed or fail
+- Use soft deletes for messages with dependencies (replies)
+- Track important actions using the Action model for audit trails
+</Tip>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Broadcasting" icon="tower-broadcast" href="/features/broadcasting">
+    Set up real-time action broadcasting
+  </Card>
+  <Card title="Components" icon="puzzle-piece" href="/customization/components">
+    Extend components with custom actions
+  </Card>
+</CardGroup>

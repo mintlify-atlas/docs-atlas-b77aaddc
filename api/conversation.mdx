@@ -1,0 +1,491 @@
+---
+title: Conversation
+description: Core model representing chat conversations in WireChat
+---
+
+The `Conversation` model represents a chat conversation between participants. It supports private (1-on-1), self, and group conversation types.
+
+## Namespace
+
+```php
+Wirechat\Wirechat\Models\Conversation
+```
+
+## Properties
+
+<ParamField body="id" type="int">
+  Unique identifier for the conversation
+</ParamField>
+
+<ParamField body="type" type="ConversationType">
+  Type of conversation: PRIVATE (1-on-1), SELF, or GROUP
+</ParamField>
+
+<ParamField body="disappearing_started_at" type="Carbon|null">
+  Timestamp when disappearing messages were enabled
+</ParamField>
+
+<ParamField body="disappearing_duration" type="int|null">
+  Duration in seconds before messages disappear
+</ParamField>
+
+<ParamField body="created_at" type="Carbon|null">
+  Conversation creation timestamp
+</ParamField>
+
+<ParamField body="updated_at" type="Carbon|null">
+  Last update timestamp
+</ParamField>
+
+## Relationships
+
+### participants()
+
+Get all participants in the conversation.
+
+```php
+public function participants(): HasMany
+```
+
+<ResponseField name="return" type="HasMany">
+  Relationship to Participant models
+</ResponseField>
+
+**Example:**
+```php
+$participants = $conversation->participants;
+foreach ($participants as $participant) {
+    echo $participant->participantable->name;
+}
+```
+
+### participant()
+
+Get a specific participant by user model.
+
+```php
+public function participant(Model|Authenticatable $user, bool $withoutGlobalScopes = false): ?Participant
+```
+
+<ParamField body="user" type="Model|Authenticatable" required>
+  The user model to find the participant for
+</ParamField>
+
+<ParamField body="withoutGlobalScopes" type="bool" default="false">
+  Whether to ignore global scopes in the query
+</ParamField>
+
+<ResponseField name="return" type="Participant|null">
+  The participant instance or null if not found
+</ResponseField>
+
+### messages()
+
+Get all messages in the conversation.
+
+```php
+public function messages(): HasMany
+```
+
+<ResponseField name="return" type="HasMany">
+  Relationship to Message models
+</ResponseField>
+
+### lastMessage()
+
+Get the most recent message in the conversation.
+
+```php
+public function lastMessage(): HasOne
+```
+
+<ResponseField name="return" type="HasOne">
+  Relationship to the latest Message
+</ResponseField>
+
+### group()
+
+Get the group configuration for this conversation.
+
+```php
+public function group(): HasOne
+```
+
+<ResponseField name="return" type="HasOne">
+  Relationship to Group model (only for GROUP type conversations)
+</ResponseField>
+
+## Participant Management
+
+### addParticipant()
+
+Add a new participant to the conversation.
+
+```php
+public function addParticipant(
+    Model $user, 
+    ParticipantRole $role = ParticipantRole::PARTICIPANT, 
+    bool $undoAdminRemovalAction = false
+): Participant
+```
+
+<ParamField body="user" type="Model" required>
+  The user model to add as a participant
+</ParamField>
+
+<ParamField body="role" type="ParticipantRole" default="ParticipantRole::PARTICIPANT">
+  The role to assign: OWNER, ADMIN, or PARTICIPANT
+</ParamField>
+
+<ParamField body="undoAdminRemovalAction" type="bool" default="false">
+  If true, allows re-adding a user who was removed by an admin
+</ParamField>
+
+<ResponseField name="return" type="Participant">
+  The created or existing Participant instance
+</ResponseField>
+
+**Example:**
+```php
+$participant = $conversation->addParticipant(
+    $user, 
+    ParticipantRole::ADMIN
+);
+```
+
+### peerParticipant()
+
+Get the other participant in a private or self conversation.
+
+```php
+public function peerParticipant(Model|Authenticatable $reference): ?Participant
+```
+
+<ParamField body="reference" type="Model|Authenticatable" required>
+  The reference user to exclude
+</ParamField>
+
+<ResponseField name="return" type="Participant|null">
+  The peer participant, or the same user for self conversations, or null
+</ResponseField>
+
+### peerParticipants()
+
+Get all participants except the reference user.
+
+```php
+public function peerParticipants(Model $reference): Collection
+```
+
+<ParamField body="reference" type="Model" required>
+  The user to exclude from the results
+</ParamField>
+
+<ResponseField name="return" type="Collection<Participant>">
+  Collection of peer participants
+</ResponseField>
+
+## Message Status
+
+### markAsRead()
+
+Mark the conversation as read for a user.
+
+```php
+public function markAsRead(?Model $user = null): void
+```
+
+<ParamField body="user" type="Model|null" default="null">
+  The user marking as read. Defaults to authenticated user.
+</ParamField>
+
+**Example:**
+```php
+$conversation->markAsRead(auth()->user());
+```
+
+### readBy()
+
+Check if the conversation has been fully read by a user.
+
+```php
+public function readBy(Model|Participant $user): bool
+```
+
+<ParamField body="user" type="Model|Participant" required>
+  The user or participant to check
+</ParamField>
+
+<ResponseField name="return" type="bool">
+  True if fully read, false otherwise
+</ResponseField>
+
+### unreadMessages()
+
+Get unread messages for a specific user.
+
+```php
+public function unreadMessages(Model|Authenticatable $user): Collection
+```
+
+<ParamField body="user" type="Model|Authenticatable" required>
+  The user to get unread messages for
+</ParamField>
+
+<ResponseField name="return" type="Collection<Message>">
+  Collection of unread messages
+</ResponseField>
+
+### getUnreadCountFor()
+
+Get the count of unread messages for a user.
+
+```php
+public function getUnreadCountFor(Model $model): int
+```
+
+<ParamField body="model" type="Model" required>
+  The user model
+</ParamField>
+
+<ResponseField name="return" type="int">
+  Number of unread messages
+</ResponseField>
+
+## Disappearing Messages
+
+### hasDisappearingTurnedOn()
+
+Check if disappearing messages are enabled.
+
+```php
+public function hasDisappearingTurnedOn(): bool
+```
+
+<ResponseField name="return" type="bool">
+  True if disappearing messages are enabled
+</ResponseField>
+
+### turnOnDisappearing()
+
+Enable disappearing messages.
+
+```php
+public function turnOnDisappearing(int $durationInSeconds): void
+```
+
+<ParamField body="durationInSeconds" type="int" required>
+  Duration before messages disappear (minimum 3600 seconds / 1 hour)
+</ParamField>
+
+**Example:**
+```php
+// Enable disappearing messages for 24 hours
+$conversation->turnOnDisappearing(86400);
+```
+
+### turnOffDisappearing()
+
+Disable disappearing messages.
+
+```php
+public function turnOffDisappearing(): void
+```
+
+## Conversation Management
+
+### deleteFor()
+
+Delete the conversation for a specific user.
+
+```php
+public function deleteFor(Model|Authenticatable $user): ?bool
+```
+
+<ParamField body="user" type="Model|Authenticatable" required>
+  The user deleting the conversation
+</ParamField>
+
+<ResponseField name="return" type="bool|null">
+  True if force deleted, null otherwise
+</ResponseField>
+
+### hasBeenDeletedBy()
+
+Check if a user has deleted the conversation.
+
+```php
+public function hasBeenDeletedBy(Model|Authenticatable $user): bool
+```
+
+<ParamField body="user" type="Model|Authenticatable" required>
+  The user to check
+</ParamField>
+
+<ResponseField name="return" type="bool">
+  True if the user has deleted the conversation
+</ResponseField>
+
+### clearFor()
+
+Clear all messages in the conversation for a user.
+
+```php
+public function clearFor(Model|Authenticatable $user): void
+```
+
+<ParamField body="user" type="Model|Authenticatable" required>
+  The user clearing the conversation
+</ParamField>
+
+## Type Checking
+
+### isPrivate()
+
+Check if the conversation is a private (1-on-1) conversation.
+
+```php
+public function isPrivate(): bool
+```
+
+<ResponseField name="return" type="bool">
+  True if private conversation
+</ResponseField>
+
+### isSelf()
+
+Check if the conversation is a self conversation.
+
+```php
+public function isSelf(): bool
+```
+
+<ResponseField name="return" type="bool">
+  True if self conversation
+</ResponseField>
+
+### isSelfConversation()
+
+Alias for `isSelf()`.
+
+```php
+public function isSelfConversation(): bool
+```
+
+### isGroup()
+
+Check if the conversation is a group conversation.
+
+```php
+public function isGroup(): bool
+```
+
+<ResponseField name="return" type="bool">
+  True if group conversation
+</ResponseField>
+
+## Role Checking
+
+### isOwner()
+
+Check if a user is the owner of the conversation.
+
+```php
+public function isOwner(Model|Authenticatable $model): bool
+```
+
+<ParamField body="model" type="Model|Authenticatable" required>
+  The user to check
+</ParamField>
+
+<ResponseField name="return" type="bool">
+  True if the user is the owner
+</ResponseField>
+
+### isAdmin()
+
+Check if a user is an admin of the conversation.
+
+```php
+public function isAdmin(Model|Authenticatable $model): bool
+```
+
+<ParamField body="model" type="Model|Authenticatable" required>
+  The user to check
+</ParamField>
+
+<ResponseField name="return" type="bool">
+  True if the user is an admin or owner
+</ResponseField>
+
+## Query Scopes
+
+### whereHasParticipant()
+
+Scope to filter conversations by participant.
+
+```php
+public function scopeWhereHasParticipant(Builder $query, $userId, $userType): void
+```
+
+### withoutBlanks()
+
+Exclude conversations with no messages.
+
+```php
+public function scopeWithoutBlanks(Builder $builder): void
+```
+
+### withoutCleared()
+
+Exclude conversations the user has cleared.
+
+```php
+public function scopeWithoutCleared(Builder $builder): void
+```
+
+### withoutDeleted()
+
+Exclude conversations the user has deleted.
+
+```php
+public function scopeWithoutDeleted(Builder $builder): void
+```
+
+### withDeleted()
+
+Include conversations the user has deleted.
+
+```php
+public function scopeWithDeleted(Builder $builder): void
+```
+
+## Example Usage
+
+```php
+use Wirechat\Wirechat\Models\Conversation;
+use Wirechat\Wirechat\Enums\ParticipantRole;
+
+// Get a conversation with unread count
+$conversation = Conversation::find(1);
+$unreadCount = $conversation->getUnreadCountFor(auth()->user());
+
+// Add a participant
+$conversation->addParticipant($newUser, ParticipantRole::PARTICIPANT);
+
+// Mark as read
+$conversation->markAsRead();
+
+// Enable disappearing messages for 7 days
+$conversation->turnOnDisappearing(604800);
+
+// Get peer participant in private chat
+$peer = $conversation->peerParticipant(auth()->user());
+echo $peer->participantable->name;
+
+// Check conversation type
+if ($conversation->isGroup()) {
+    $group = $conversation->group;
+    echo $group->name;
+}
+```

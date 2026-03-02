@@ -1,0 +1,383 @@
+---
+title: Contributing
+description: Learn how to contribute to WireChat development
+---
+
+## Contributing to WireChat
+
+Thank you for considering contributing to WireChat! This guide will help you get started with contributing code, reporting bugs, and suggesting improvements.
+
+<Note>
+  WireChat is an open-source project maintained by [Namu Makwembo](https://x.com/namuio). Your contributions help make it better for everyone.
+</Note>
+
+## Ways to Contribute
+
+There are many ways you can contribute to WireChat:
+
+- 🐛 **Report bugs** - Help identify issues and edge cases
+- 💡 **Suggest features** - Propose new functionality or improvements  
+- 📝 **Improve documentation** - Fix typos, add examples, clarify concepts
+- 💻 **Submit code** - Fix bugs, implement features, refactor code
+- 🧪 **Write tests** - Improve test coverage and reliability
+- 🎨 **Improve UI/UX** - Enhance components, themes, and accessibility
+
+## Getting Started
+
+<Steps>
+
+### Step 1: Fork the Repository
+
+Fork the WireChat repository to your GitHub account:
+
+```bash
+gh repo fork namumakwembo/wirechat --clone
+```
+
+Or visit [github.com/namumakwembo/wirechat](https://github.com/namumakwembo/wirechat) and click "Fork".
+
+### Step 2: Set Up Your Development Environment
+
+Clone your fork and install dependencies:
+
+```bash
+cd wirechat
+composer install
+npm install
+```
+
+### Step 3: Configure Git Hooks
+
+WireChat uses Git hooks for automated checks. They're configured automatically on install:
+
+```json
+"post-install-cmd": [
+    "git config core.hooksPath .githooks || true"
+]
+```
+
+This runs code quality checks before commits.
+
+### Step 4: Run the Test Suite
+
+Ensure all tests pass before making changes:
+
+```bash
+composer test
+```
+
+This runs:
+- **Pest** - PHP tests with parallel execution
+- **Pint** - Code style fixes
+- **PHPStan** - Static analysis
+
+<Tip>
+  Run individual tools:
+  ```bash
+  composer run pest          # Tests only
+  composer run lint          # PHPStan only  
+  vendor/bin/pint           # Code style only
+  ```
+</Tip>
+
+### Step 5: Start the Development Server
+
+WireChat uses Laravel Testbench for development:
+
+```bash
+composer serve
+```
+
+This:
+1. Builds the workbench application
+2. Starts a local server at `http://localhost:8000`
+
+</Steps>
+
+## Development Workflow
+
+### Creating a New Feature
+
+<Steps>
+
+### Step 1: Create a Feature Branch
+
+Always create a new branch for your work:
+
+```bash
+git checkout -b feature/your-feature-name
+```
+
+Use descriptive branch names:
+- `feature/panel-notifications`
+- `fix/attachment-upload-s3`
+- `docs/improve-installation-guide`
+
+### Step 2: Make Your Changes
+
+Follow these guidelines:
+
+<Accordion title="Code Style">
+  WireChat uses **Laravel Pint** for code formatting:
+  
+  ```bash
+  vendor/bin/pint
+  ```
+  
+  This enforces PSR-12 standards with Laravel-specific rules.
+</Accordion>
+
+<Accordion title="Type Safety">
+  Use **PHPStan** (level 5+) for static analysis:
+  
+  ```bash
+  composer run lint
+  ```
+  
+  Add proper type hints to all methods:
+  ```php
+  public function addParticipant(
+      Model $user, 
+      ParticipantRole $role = ParticipantRole::PARTICIPANT,
+      bool $undoAdminRemovalAction = false
+  ): Participant {
+      // ...
+  }
+  ```
+</Accordion>
+
+<Accordion title="Documentation Comments">
+  Add PHPDoc blocks for complex methods:
+  
+  ```php
+  /**
+   * Add a new participant to the conversation.
+   *
+   * @param  Model  $user  The user to add as participant
+   * @param  ParticipantRole  $role  The role to assign
+   * @param  bool  $undoAdminRemovalAction  Whether to undo admin removal
+   * @return Participant  The created participant instance
+   */
+  public function addParticipant(...) { }
+  ```
+</Accordion>
+
+<Accordion title="Database Queries">
+  - Use Eloquent relationships when possible
+  - Eager load to prevent N+1 queries
+  - Add database indexes for performance
+  - Use transactions for multi-step operations
+  
+  Example from `Conversation.php:86-102`:
+  ```php
+  DB::transaction(function () use ($conversation) {
+      $conversation->participants()->withoutGlobalScopes()->forceDelete();
+      $conversation->messages()?->withoutGlobalScopes()?->forceDelete();
+      $conversation->actions()?->delete();
+      $conversation->group()?->delete();
+  });
+  ```
+</Accordion>
+
+### Step 3: Write Tests
+
+Add tests for all new features and bug fixes:
+
+```php
+use Wirechat\Wirechat\Models\Conversation;
+use Wirechat\Wirechat\Enums\ConversationType;
+
+test('can create a private conversation', function () {
+    $user1 = User::factory()->create();
+    $user2 = User::factory()->create();
+    
+    $conversation = Conversation::create([
+        'type' => ConversationType::PRIVATE,
+    ]);
+    
+    $conversation->addParticipant($user1);
+    $conversation->addParticipant($user2);
+    
+    expect($conversation->participants)->toHaveCount(2);
+});
+```
+
+Run your tests:
+
+```bash
+vendor/bin/pest
+```
+
+### Step 4: Commit Your Changes
+
+Write clear, descriptive commit messages:
+
+```bash
+git add .
+git commit -m "feat: add panel-specific notification settings"
+```
+
+Follow [Conventional Commits](https://www.conventionalcommits.org/):
+- `feat:` - New feature
+- `fix:` - Bug fix
+- `docs:` - Documentation changes
+- `style:` - Code style changes (formatting)
+- `refactor:` - Code refactoring
+- `test:` - Adding or updating tests
+- `chore:` - Maintenance tasks
+
+### Step 5: Push and Create a Pull Request
+
+Push your branch:
+
+```bash
+git push origin feature/your-feature-name
+```
+
+Create a pull request on GitHub:
+
+```bash
+gh pr create --title "Add panel-specific notification settings" --body "Implements per-panel notification configuration..."
+```
+
+</Steps>
+
+## Pull Request Guidelines
+
+<Steps>
+
+### Clear Description
+
+Your PR should include:
+- **What**: Describe the changes
+- **Why**: Explain the motivation  
+- **How**: Note any implementation details
+- **Testing**: How you tested the changes
+
+Example:
+
+```markdown
+## What
+Adds support for panel-specific notification settings.
+
+## Why
+Users requested the ability to configure different notification
+behavior for admin vs. user panels.
+
+## How
+- Added `notifications()` method to Panel class
+- Updated `NotifyParticipant` to check panel config
+- Added tests for notification scoping
+
+## Testing
+- ✅ All existing tests pass
+- ✅ Added 5 new tests for notification scoping
+- ✅ Manually tested in workbench app
+```
+
+### Keep PRs Focused
+
+- One feature or fix per PR
+- Avoid mixing refactoring with features
+- Split large changes into multiple PRs
+
+### Ensure CI Passes
+
+Your PR must pass all checks:
+- ✅ **Pest tests** - All tests passing
+- ✅ **Pint** - Code style compliance
+- ✅ **PHPStan** - No type errors
+
+Fix any failures before requesting review.
+
+### Request Review
+
+Once ready, request review from maintainers. Be responsive to feedback and willing to make changes.
+
+</Steps>
+
+## Reporting Bugs
+
+<Warning>
+  WireChat is in **beta**. Please report any bugs you find to help stabilize the package.
+</Warning>
+
+When reporting bugs, include:
+
+1. **WireChat Version** - e.g., v0.3.0-beta4
+2. **Laravel Version** - e.g., Laravel 11.x
+3. **PHP Version** - e.g., PHP 8.2
+4. **Database** - MySQL, PostgreSQL, SQLite, etc.
+5. **Steps to Reproduce** - Minimal code to trigger the bug
+6. **Expected Behavior** - What should happen
+7. **Actual Behavior** - What actually happens
+8. **Error Messages** - Full stack traces if available
+
+Use the [issue template](https://github.com/namumakwembo/wirechat/issues/new) on GitHub.
+
+## Suggesting Features
+
+Before suggesting a feature:
+
+1. Check [existing issues](https://github.com/namumakwembo/wirechat/issues) for duplicates
+2. Search [discussions](https://github.com/namumakwembo/wirechat/discussions)
+3. Consider if it fits WireChat's scope and philosophy
+
+When proposing features, explain:
+- **Use case** - What problem does it solve?
+- **API design** - How would developers use it?
+- **Alternatives** - What workarounds exist today?
+- **Breaking changes** - Would it affect existing code?
+
+## Code of Conduct
+
+<Note>
+  Be respectful, inclusive, and professional in all interactions. WireChat follows standard open-source community guidelines.
+</Note>
+
+Key principles:
+- **Be respectful** - Value diverse perspectives
+- **Be constructive** - Provide helpful feedback
+- **Be patient** - Maintainers are volunteers
+- **Be collaborative** - Work together toward solutions
+
+## Recognition
+
+All contributors are recognized in:
+- GitHub contributor graphs
+- Release notes for significant contributions
+- The WireChat documentation
+
+## Support the Project
+
+If you can't contribute code, you can still help:
+
+- ⭐ **Star the repo** on GitHub
+- 💬 **Share WireChat** with others
+- 💰 **Sponsor the project** via [GitHub Sponsors](https://github.com/sponsors/namumakwembo)
+- ☕ **Buy the maintainer a coffee** via [Buy Me a Coffee](https://www.buymeacoffee.com/namuio)
+
+<Tip>
+  Your support—whether code, feedback, or sponsorship—helps keep WireChat actively maintained and improved.
+</Tip>
+
+## Documentation Contributions
+
+The documentation site is built with **Mintlify**. To contribute:
+
+1. Documentation source is at [wirechat.namuio.com/docs/contribution](https://wirechat.namuio.com/docs/contribution)
+2. Follow the same PR workflow as code contributions
+3. Preview locally using Mintlify CLI
+4. Ensure MDX syntax is valid
+
+## Questions?
+
+If you have questions about contributing:
+
+- 💬 Ask in [GitHub Discussions](https://github.com/namumakwembo/wirechat/discussions)
+- 🐦 Reach out on [Twitter/X](https://x.com/namuio)
+- 📧 Contact the maintainer directly
+
+<Note>
+  For more details, see the full contribution guide at [wirechat.namuio.com/docs/contribution](https://wirechat.namuio.com/docs/contribution).
+</Note>

@@ -1,0 +1,99 @@
+---
+title: Introduction
+description: WireChat is a powerful Laravel Livewire chat package that brings real-time private & group communication to your application
+---
+
+# WireChat
+
+WireChat is a powerful Laravel Livewire chat package that brings real-time private & group communication to your application. With embeddable components, it seamlessly integrates into your project, providing a feature-rich chat experience for your users.
+
+<Warning>
+  **Beta Notice:** WireChat is currently in beta and is not recommended for production use. If you encounter any issues, please report them immediately to help accelerate the package's progress towards a stable release.
+</Warning>
+
+## Key Features
+
+<CardGroup cols={2}>
+  <Card title="Private & Group Chats" icon="comments">
+    Real-time messaging with customizable groups, admins, and permissions
+  </Card>
+  
+  <Card title="Smart Deletes" icon="trash">
+    Delete messages or chats without affecting others
+  </Card>
+  
+  <Card title="Media Sharing" icon="file-arrow-up">
+    Send files with easy previews and attachment management
+  </Card>
+  
+  <Card title="Search & Realtime" icon="magnifying-glass">
+    Instant messaging with powerful search capabilities
+  </Card>
+  
+  <Card title="Customizable Themes" icon="palette">
+    Match your brand with configurable colors and dark mode
+  </Card>
+  
+  <Card title="Message Replies" icon="reply">
+    Easily reply to messages and attachments
+  </Card>
+</CardGroup>
+
+## Quick Links
+
+<CardGroup cols={2}>
+  <Card title="Installation" icon="download" href="/installation">
+    Get started with WireChat in your Laravel application
+  </Card>
+  
+  <Card title="Quick Start" icon="rocket" href="/quickstart">
+    Build your first chat in minutes
+  </Card>
+</CardGroup>
+
+## Requirements
+
+Before installing WireChat, ensure your environment meets these requirements:
+
+- **PHP**: `^8.1|^8.2|^8.3|^8.4`
+- **Laravel**: `^10.0|^11.0|^12.0`
+- **Livewire**: `^3.2.3`
+
+## Architecture Overview
+
+WireChat is built on top of Laravel Livewire and provides:
+
+- **Livewire Components**: Pre-built, embeddable chat components
+- **Panel System**: Multi-panel support for different chat contexts
+- **Real-time Broadcasting**: Powered by Laravel Echo and WebSockets
+- **Flexible Permissions**: User-level chat and group permissions via the `WirechatUser` contract
+
+## What's Next?
+
+<Steps>
+  <Step title="Install WireChat">
+    Follow the [installation guide](/installation) to add WireChat to your Laravel project
+  </Step>
+  
+  <Step title="Configure Your User Model">
+    Implement the `WirechatUser` interface on your User model
+  </Step>
+  
+  <Step title="Create Your First Chat">
+    Use the [Quick Start guide](/quickstart) to embed chat in your app
+  </Step>
+</Steps>
+
+## Community & Support
+
+WireChat is developed and maintained by [Namu Makwembo](https://x.com/namuio).
+
+<CardGroup cols={2}>
+  <Card title="GitHub" icon="github" href="https://github.com/namumakwembo/wirechat">
+    Star the repository and contribute
+  </Card>
+  
+  <Card title="Report Issues" icon="bug" href="https://github.com/namumakwembo/wirechat/issues">
+    Found a bug? Let us know
+  </Card>
+</CardGroup>

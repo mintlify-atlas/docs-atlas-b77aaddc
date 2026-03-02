@@ -1,0 +1,382 @@
+---
+title: 'Upgrade Commands'
+description: 'Commands for upgrading WireChat from older versions'
+---
+
+## Overview
+
+WireChat provides several upgrade commands to help migrate from older versions, update namespaces, and convert database schemas. These commands are essential when upgrading from legacy versions.
+
+## Commands
+
+### wirechat:upgrade-to-v0.3x
+
+Migrates from legacy configuration format to the new panel-based system.
+
+```bash
+php artisan wirechat:upgrade-to-v0.3x {--dry-run}
+```
+
+<ParamField path="--dry-run" type="flag" optional>
+  Preview changes without modifying any files
+</ParamField>
+
+#### What It Does
+
+<Steps>
+  <Step title="Read Legacy Configuration">
+    Reads settings from `config/wirechat.php` and identifies non-default values.
+  </Step>
+  
+  <Step title="Generate Panel Provider">
+    Creates `app/Providers/Wirechat/ChatsPanelProvider.php` with your migrated settings.
+  </Step>
+  
+  <Step title="Update Namespaces">
+    Converts `Namu\WireChat` namespace to `Wirechat\Wirechat` across your codebase.
+  </Step>
+  
+  <Step title="Register Provider">
+    Automatically registers the new panel provider in your application.
+  </Step>
+</Steps>
+
+#### Example Output
+
+```bash
+$ php artisan wirechat:upgrade-to-v0.3x
+
+Starting Wirechat upgrade to panel...
+Panel provider created at: app/Providers/Wirechat/ChatsPanelProvider.php
+No files found with Namu\WireChat to update.
+Registered provider: App\Providers\Wirechat\ChatsPanelProvider
+Wirechat upgrade complete! Review the panel for any custom logic.
+```
+
+#### Dry Run Example
+
+```bash
+$ php artisan wirechat:upgrade-to-v0.3x --dry-run
+
+Starting Wirechat upgrade to panel...
+Dry run: Panel provider would be created at: app/Providers/Wirechat/ChatsPanelProvider.php
+Generated panel provider code:
+<?php
+
+namespace App\Providers\Wirechat;
+
+use Wirechat\Wirechat\Panel;
+use Wirechat\Wirechat\PanelProvider;
+use Wirechat\Wirechat\Support\Color;
+
+class ChatsPanelProvider extends PanelProvider
+{
+    public function panel(Panel $panel): Panel
+    {
+        return $panel
+            ->id('chats')
+            ->path('chats')
+            ->emojiPicker()
+            ->colors([
+                'primary' => Color::Blue,
+            ])
+            ->default();
+    }
+}
+
+Provider would be registered: App\Providers\Wirechat\ChatsPanelProvider
+Dry run: No files found with Namu\WireChat to update.
+Dry run complete! No changes were made.
+```
+
+#### Configuration Migration
+
+The command migrates these legacy config values to panel methods:
+
+<CodeGroup>
+```php Legacy Config
+// config/wirechat.php
+'routes' => [
+    'prefix' => 'admin/chats',
+    'middleware' => ['web', 'auth', 'admin'],
+    'guards' => ['admin'],
+],
+'layout' => 'layouts.admin',
+'max_group_members' => 500,
+```
+
+```php Migrated Panel
+// app/Providers/Wirechat/ChatsPanelProvider.php
+return $panel
+    ->id('chats')
+    ->path('admin/chats')
+    ->middleware(['web', 'auth', 'admin'])
+    ->guards(['admin'])
+    ->layout('layouts.admin')
+    ->maxGroupMembers(500);
+```
+</CodeGroup>
+
+---
+
+### wirechat:upgrade-namespace-to-v0.3x
+
+Updates namespace from `Namu\WireChat` to `Wirechat\Wirechat` across your codebase.
+
+```bash
+php artisan wirechat:upgrade-namespace-to-v0.3x {--dry-run}
+```
+
+<ParamField path="--dry-run" type="flag" optional>
+  Show files that would be updated without making changes
+</ParamField>
+
+#### What It Does
+
+- Searches all `.php` files (excluding `vendor/` and `storage/`)
+- Finds files containing `Namu\WireChat` or `Namu\Wirechat`
+- Replaces with `Wirechat\Wirechat`
+- Reports all modified files
+
+#### Example Output
+
+```bash
+$ php artisan wirechat:upgrade-namespace-to-v0.3x
+
+Starting Wirechat namespace upgrade...
+Searching...
+Updated namespaces in the following files:
+./app/Models/User.php
+./database/migrations/2024_01_15_create_custom_table.php
+./app/Http/Controllers/ChatController.php
+```
+
+#### Dry Run Example
+
+```bash
+$ php artisan wirechat:upgrade-namespace-to-v0.3x --dry-run
+
+Starting Wirechat namespace upgrade...
+Searching...
+Dry run: Files that would be updated:
+./app/Models/User.php
+./database/migrations/2024_01_15_create_custom_table.php
+./app/Http/Controllers/ChatController.php
+```
+
+#### System Requirements
+
+<Note>
+This command requires `find` and `sed` utilities:
+- **Linux/macOS**: Available by default
+- **Windows**: Requires Git Bash or WSL (Windows Subsystem for Linux)
+</Note>
+
+If these utilities are not available on Windows:
+
+```bash
+This command requires find/sed (available in Git Bash or WSL on Windows). 
+Please install Git Bash or WSL, or manually update Namu\WireChat to Wirechat\Wirechat.
+```
+
+---
+
+### wirechat:upgrade-morph-columns
+
+Converts polymorphic relationship columns to support UUIDs, ULIDs, and large integers.
+
+```bash
+php artisan wirechat:upgrade-morph-columns {--dry-run}
+```
+
+<ParamField path="--dry-run" type="flag" optional>
+  Show what would change without applying database modifications
+</ParamField>
+
+#### What It Does
+
+<Steps>
+  <Step title="Analyze Current Schema">
+    Checks column types in `actions` and `attachments` tables.
+  </Step>
+  
+  <Step title="Convert ID Columns">
+    Converts polymorphic `*_id` columns to `VARCHAR(64)` to support UUID/ULID/BigInt.
+  </Step>
+  
+  <Step title="Convert Type Columns">
+    Converts polymorphic `*_type` columns to `VARCHAR(100)` for morph type classes.
+  </Step>
+  
+  <Step title="Create Indexes">
+    Adds composite indexes for better query performance.
+  </Step>
+</Steps>
+
+#### Affected Tables and Columns
+
+**Actions Table:**
+- `actionable_id` → VARCHAR(64)
+- `actionable_type` → VARCHAR(100)
+- `actor_id` → VARCHAR(64)
+- `actor_type` → VARCHAR(100)
+
+**Attachments Table:**
+- `attachable_id` → VARCHAR(64)
+- `attachable_type` → VARCHAR(100)
+
+#### Example Output
+
+```bash
+$ php artisan wirechat:upgrade-morph-columns
+
+Driver: mysql
+Dry run: no
+Table: wirechat_actions
+  - actionable_id: bigint → varchar(64)
+    Updated actionable_id.
+  - actionable_type: string → varchar(100) (ok)
+  - actor_id: bigint → varchar(64)
+    Updated actor_id.
+  - actor_type: string → varchar(100) (ok)
+Table: wirechat_attachments
+  - attachable_id: bigint → varchar(64)
+    Updated attachable_id.
+  - attachable_type: string → varchar(100) (ok)
+Done.
+```
+
+#### Dry Run Example
+
+```bash
+$ php artisan wirechat:upgrade-morph-columns --dry-run
+
+Driver: mysql
+Dry run: yes
+Table: wirechat_actions
+  - actionable_id: bigint → varchar(64)
+  - actionable_type: string → varchar(100) (ok)
+  - actor_id: bigint → varchar(64)
+  - actor_type: string → varchar(100) (ok)
+Table: wirechat_attachments
+  - attachable_id: bigint → varchar(64)
+  - attachable_type: string → varchar(100) (ok)
+Done.
+```
+
+#### Database Support
+
+<CodeGroup>
+```sql PostgreSQL
+ALTER TABLE table ALTER COLUMN column TYPE text USING column::text
+ALTER TABLE table ALTER COLUMN column TYPE varchar(N)
+```
+
+```sql MySQL/MariaDB
+ALTER TABLE table MODIFY column varchar(N) CHARACTER SET ascii COLLATE ascii_bin
+```
+
+```sql SQLite
+-- Manual migration required
+-- Consider fresh migration or table rebuild
+```
+
+```php Other Drivers
+// Uses Laravel Schema Builder
+Schema::table($table, function (Blueprint $t) use ($column) {
+    $t->string($column, 64)->change();
+});
+```
+</CodeGroup>
+
+<Warning>
+**SQLite Limitation**: SQLite doesn't support in-place column type changes. You'll need to:
+- Create a new table with correct schema
+- Copy data from old table
+- Drop old table and rename new table
+
+Or run `php artisan migrate:fresh` (destroys all data)
+</Warning>
+
+#### Indexes Created
+
+The command adds these composite indexes for performance:
+
+```sql
+CREATE INDEX actions_actionable_idx ON wirechat_actions (actionable_id, actionable_type);
+CREATE INDEX actions_actor_idx ON wirechat_actions (actor_id, actor_type);
+CREATE INDEX actions_type_idx ON wirechat_actions (type);
+CREATE INDEX attachments_attachable_idx ON wirechat_attachments (attachable_id, attachable_type);
+```
+
+## Upgrade Workflow
+
+When upgrading from older versions, run commands in this order:
+
+<Steps>
+  <Step title="Preview Changes">
+    ```bash
+    php artisan wirechat:upgrade-to-v0.3x --dry-run
+    php artisan wirechat:upgrade-namespace-to-v0.3x --dry-run
+    php artisan wirechat:upgrade-morph-columns --dry-run
+    ```
+  </Step>
+  
+  <Step title="Backup Database">
+    ```bash
+    # Create database backup
+    php artisan db:backup
+    # Or use your database's backup tools
+    ```
+  </Step>
+  
+  <Step title="Run Upgrades">
+    ```bash
+    php artisan wirechat:upgrade-to-v0.3x
+    php artisan wirechat:upgrade-morph-columns
+    ```
+  </Step>
+  
+  <Step title="Test Application">
+    Test your chat functionality thoroughly after upgrading.
+  </Step>
+  
+  <Step title="Update Dependencies">
+    Review your panel provider and update any custom code.
+  </Step>
+</Steps>
+
+## Troubleshooting
+
+### Panel Already Exists
+
+```bash
+Panel provider already exists at: app/Providers/Wirechat/ChatsPanelProvider.php. Aborting upgrade.
+```
+
+**Solution:** Rename or move the existing panel provider before running the upgrade.
+
+### Namespace Update Failed (Windows)
+
+```bash
+This command requires find/sed (available in Git Bash or WSL on Windows).
+```
+
+**Solutions:**
+1. Install Git Bash: [https://gitforwindows.org/](https://gitforwindows.org/)
+2. Use WSL: [https://docs.microsoft.com/en-us/windows/wsl/](https://docs.microsoft.com/en-us/windows/wsl/)
+3. Manually find and replace `Namu\WireChat` with `Wirechat\Wirechat`
+
+### SQLite Column Type Change
+
+```bash
+SQLite: in-place ALTER not supported; consider a table rebuild or migrate:fresh.
+```
+
+**Solution:** For SQLite, you'll need to manually migrate or use `php artisan migrate:fresh` (destroys data).
+
+## Source References
+
+- `wirechat:upgrade-to-v0.3x`: `~/workspace/source/src/Console/Commands/MigrateConfigToPanelCommand.php:11`
+- `wirechat:upgrade-namespace-to-v0.3x`: `~/workspace/source/src/Console/Commands/UpgradeNamespaceCommand.php:9`
+- `wirechat:upgrade-morph-columns`: `~/workspace/source/src/Console/Commands/UpgradeMorphColumns.php:14`

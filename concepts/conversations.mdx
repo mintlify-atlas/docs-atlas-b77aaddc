@@ -1,0 +1,339 @@
+---
+title: Conversations
+description: Understanding conversations in WireChat - the container for all chat messages
+---
+
+## Overview
+
+Conversations are the core container for messages in WireChat. They represent a chat session between participants and can be of different types: private (one-on-one), group, or self (notes to yourself).
+
+## Conversation Types
+
+WireChat supports three conversation types defined in the `ConversationType` enum:
+
+```php
+use Wirechat\Wirechat\Enums\ConversationType;
+
+enum ConversationType: string
+{
+    case SELF = 'self';
+    case PRIVATE = 'private';
+    case GROUP = 'group';
+}
+```
+
+### Private Conversations
+
+One-on-one conversations between two users:
+
+```php
+$conversation = Conversation::create(['type' => ConversationType::PRIVATE]);
+
+// Check if private
+if ($conversation->isPrivate()) {
+    // Handle private conversation
+}
+```
+
+<Info>
+  Private conversations can only have exactly two participants. Attempting to add more will result in an error.
+</Info>
+
+### Group Conversations
+
+Multi-user conversations with additional group settings:
+
+```php
+$conversation = Conversation::create(['type' => ConversationType::GROUP]);
+
+// Check if group
+if ($conversation->isGroup()) {
+    // Access group settings
+    $group = $conversation->group;
+}
+```
+
+### Self Conversations
+
+Personal notes to yourself:
+
+```php
+$conversation = Conversation::create(['type' => ConversationType::SELF]);
+
+// Check if self conversation
+if ($conversation->isSelf() || $conversation->isSelfConversation()) {
+    // Handle self conversation
+}
+```
+
+<Warning>
+  Self conversations can only have one participant. They are automatically deleted when the user deletes them.
+</Warning>
+
+## Database Structure
+
+Conversations have the following key attributes:
+
+```php
+/**
+ * @property int $id
+ * @property ConversationType $type
+ * @property \Illuminate\Support\Carbon|null $disappearing_started_at
+ * @property int|null $disappearing_duration
+ * @property \Illuminate\Support\Carbon|null $created_at
+ * @property \Illuminate\Support\Carbon|null $updated_at
+ */
+```
+
+## Relationships
+
+### Participants
+
+Every conversation has participants:
+
+```php
+// Get all participants
+$participants = $conversation->participants;
+
+// Get a specific participant
+$participant = $conversation->participant($user);
+
+// Add a participant
+$participant = $conversation->addParticipant(
+    $user,
+    ParticipantRole::PARTICIPANT
+);
+```
+
+### Messages
+
+Access conversation messages:
+
+```php
+// Get all messages
+$messages = $conversation->messages;
+
+// Get the last message
+$lastMessage = $conversation->lastMessage;
+```
+
+### Group Information
+
+For group conversations, access additional metadata:
+
+```php
+if ($conversation->isGroup()) {
+    $group = $conversation->group;
+    echo $group->name;
+    echo $group->description;
+}
+```
+
+## Adding Participants
+
+Add users to a conversation with role assignment:
+
+```php
+use Wirechat\Wirechat\Enums\ParticipantRole;
+
+// Add as regular participant
+$participant = $conversation->addParticipant(
+    $user,
+    ParticipantRole::PARTICIPANT
+);
+
+// Add as admin
+$admin = $conversation->addParticipant(
+    $adminUser,
+    ParticipantRole::ADMIN
+);
+
+// Add as owner
+$owner = $conversation->addParticipant(
+    $ownerUser,
+    ParticipantRole::OWNER
+);
+```
+
+<Note>
+  The `addParticipant()` method includes built-in validation:
+  - Prevents adding more than 2 participants to private conversations
+  - Prevents adding more than 1 participant to self conversations
+  - Checks if the participant was previously removed by an admin
+  - Prevents re-adding participants who exited the group
+</Note>
+
+## Peer Participants
+
+Get the other participant(s) in a conversation:
+
+```php
+// Get the other participant in a private/self conversation
+$peer = $conversation->peerParticipant($currentUser);
+
+// Get all other participants
+$peers = $conversation->peerParticipants($currentUser);
+```
+
+## Read Status
+
+Manage conversation read status:
+
+```php
+// Mark as read for current user
+$conversation->markAsRead($user);
+
+// Check if read by user
+if ($conversation->readBy($user)) {
+    echo "Conversation is read";
+}
+
+// Get unread messages
+$unreadMessages = $conversation->unreadMessages($user);
+
+// Get unread count
+$unreadCount = $conversation->getUnreadCountFor($user);
+```
+
+## Disappearing Messages
+
+Configure messages to automatically disappear after a set duration:
+
+```php
+// Turn on disappearing (minimum 1 hour)
+$conversation->turnOnDisappearing(3600); // 1 hour in seconds
+
+// Check if enabled
+if ($conversation->hasDisappearingTurnedOn()) {
+    echo "Messages will disappear after: " . $conversation->disappearing_duration . " seconds";
+}
+
+// Turn off disappearing
+$conversation->turnOffDisappearing();
+```
+
+<Warning>
+  Disappearing messages must have a duration of at least 1 hour (3600 seconds).
+</Warning>
+
+## Deleting Conversations
+
+### Delete for User
+
+Delete a conversation for a specific user (other participants can still see it):
+
+```php
+$conversation->deleteFor($user);
+
+// Check if deleted by user
+if ($conversation->hasBeenDeletedBy($user)) {
+    echo "User has deleted this conversation";
+}
+```
+
+<Info>
+  For private conversations, if both participants delete the conversation, it will be permanently removed from the database.
+</Info>
+
+### Clear History
+
+Clear conversation history for a user without deleting the conversation:
+
+```php
+$conversation->clearFor($user);
+```
+
+## Query Scopes
+
+WireChat provides several useful query scopes:
+
+### whereHasParticipant
+
+Find conversations with a specific participant:
+
+```php
+$conversations = Conversation::whereHasParticipant(
+    $user->id,
+    $user->getMorphClass()
+)->get();
+```
+
+### withoutBlanks
+
+Exclude conversations with no messages:
+
+```php
+$conversations = Conversation::withoutBlanks()->get();
+```
+
+### withoutCleared
+
+Exclude conversations where the user cleared all messages:
+
+```php
+$conversations = Conversation::withoutCleared()->get();
+```
+
+### withoutDeleted
+
+Exclude conversations marked as deleted by the authenticated user:
+
+```php
+$conversations = Conversation::withoutDeleted()->get();
+```
+
+### withDeleted
+
+Include conversations marked as deleted:
+
+```php
+$conversations = Conversation::withDeleted()->get();
+```
+
+## Role Checks
+
+Check participant roles within a conversation:
+
+```php
+// Check if user is owner
+if ($conversation->isOwner($user)) {
+    echo "User is the conversation owner";
+}
+
+// Check if user is admin
+if ($conversation->isAdmin($user)) {
+    echo "User is an admin";
+}
+```
+
+## Receiver
+
+Get the receiver in a private or self conversation:
+
+```php
+$receiver = $conversation->getReceiver();
+
+// For self conversations, returns the authenticated user
+// For private conversations, returns the other participant
+```
+
+## Best Practices
+
+<Tip>
+  - Always check conversation type before performing type-specific operations
+  - Use scopes to filter conversations efficiently
+  - Load relationships eagerly when querying multiple conversations
+  - Handle the case where a participant might not exist in a conversation
+  - Use `deleteFor()` instead of `delete()` to allow per-user deletion
+</Tip>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Participants" icon="users" href="/concepts/participants">
+    Learn about managing conversation participants
+  </Card>
+  <Card title="Messages" icon="message" href="/concepts/messages">
+    Understand message handling and types
+  </Card>
+</CardGroup>

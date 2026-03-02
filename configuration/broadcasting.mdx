@@ -1,0 +1,406 @@
+---
+title: Broadcasting Configuration
+description: Configure real-time broadcasting for WireChat messages and events
+---
+
+## Overview
+
+WireChat uses Laravel's broadcasting system to deliver real-time message updates. When broadcasting is enabled, messages are instantly delivered to conversation participants without requiring page refreshes.
+
+## Prerequisites
+
+Before configuring WireChat broadcasting, ensure Laravel broadcasting is properly set up:
+
+1. Install Laravel Echo and Pusher (or your preferred broadcaster):
+
+```bash
+npm install --save-dev laravel-echo pusher-js
+```
+
+2. Configure your broadcasting driver in `.env`:
+
+```bash
+BROADCAST_DRIVER=pusher
+PUSHER_APP_ID=your-app-id
+PUSHER_APP_KEY=your-app-key
+PUSHER_APP_SECRET=your-app-secret
+PUSHER_APP_CLUSTER=your-cluster
+```
+
+3. Uncomment the BroadcastServiceProvider in `config/app.php`:
+
+```php
+'providers' => [
+    // ...
+    App\Providers\BroadcastServiceProvider::class,
+],
+```
+
+## Panel Broadcasting Configuration
+
+Enable broadcasting in your panel provider:
+
+```php
+use Wirechat\Wirechat\Panel;
+use Wirechat\Wirechat\PanelProvider;
+
+class AdminPanelProvider extends PanelProvider
+{
+    public function panel(Panel $panel): Panel
+    {
+        return $panel
+            ->id('admin')
+            ->path('admin')
+            ->broadcasting() // Enable broadcasting
+            ->messagesQueue('messages') // Queue for message broadcasts
+            ->eventsQueue('default'); // Queue for event broadcasts
+    }
+}
+```
+
+### Broadcasting Methods
+
+<ParamField path="broadcasting" type="bool|Closure" default="true">
+  Enable or disable broadcasting for the panel.
+  
+  ```php
+  $panel->broadcasting() // Enable
+  $panel->broadcasting(false) // Disable
+  $panel->broadcasting(fn() => config('app.env') === 'production') // Dynamic
+  ```
+</ParamField>
+
+<ParamField path="messagesQueue" type="string|Closure" default="'messages'">
+  Queue name for broadcasting new messages.
+  
+  ```php
+  $panel->messagesQueue('messages')
+  $panel->messagesQueue('high-priority')
+  ```
+</ParamField>
+
+<ParamField path="eventsQueue" type="string|Closure" default="'default'">
+  Queue name for broadcasting events (typing indicators, read receipts, etc.).
+  
+  ```php
+  $panel->eventsQueue('default')
+  $panel->eventsQueue('events')
+  ```
+</ParamField>
+
+## Broadcast Channels
+
+WireChat automatically registers broadcast channels for each panel. These channels are defined in `routes/channels.php` (loaded by the WireChat package):
+
+### Conversation Channel
+
+Users can subscribe to specific conversation updates:
+
+```php
+// Channel format: {panelId}.conversation.{conversationId}
+Broadcast::channel("{$panelId}.conversation.{conversationId}", function ($user, $conversationId) {
+    $conversation = Conversation::find($conversationId);
+    return $conversation && $user->belongsToConversation($conversation);
+});
+```
+
+### Participant Channel
+
+Users receive updates for all their conversations:
+
+```php
+// Channel format: {panelId}.participant.{encodedType}.{id}
+Broadcast::channel("{$panelId}.participant.{encodedType}.{id}", function ($user, $encodedType, $id) {
+    $morphType = MorphClassResolver::decode($encodedType);
+    return $user->id == $id && $user->getMorphClass() == $morphType;
+});
+```
+
+## Broadcasting Drivers
+
+### Pusher
+
+The most common broadcasting driver:
+
+```php
+// config/broadcasting.php
+'connections' => [
+    'pusher' => [
+        'driver' => 'pusher',
+        'key' => env('PUSHER_APP_KEY'),
+        'secret' => env('PUSHER_APP_SECRET'),
+        'app_id' => env('PUSHER_APP_ID'),
+        'options' => [
+            'cluster' => env('PUSHER_APP_CLUSTER'),
+            'encrypted' => true,
+            'host' => env('PUSHER_HOST') ?: 'api-'.env('PUSHER_APP_CLUSTER', 'mt1').'.pusher.com',
+            'port' => env('PUSHER_PORT', 443),
+            'scheme' => env('PUSHER_SCHEME', 'https'),
+        ],
+    ],
+],
+```
+
+### Ably
+
+```php
+// config/broadcasting.php
+'connections' => [
+    'ably' => [
+        'driver' => 'ably',
+        'key' => env('ABLY_KEY'),
+    ],
+],
+```
+
+```bash
+# .env
+BROADCAST_DRIVER=ably
+ABLY_KEY=your-ably-key
+```
+
+### Reverb (Laravel's First-Party Broadcasting)
+
+```bash
+php artisan install:broadcasting
+```
+
+```php
+// config/broadcasting.php
+'connections' => [
+    'reverb' => [
+        'driver' => 'reverb',
+        'app_id' => env('REVERB_APP_ID'),
+        'app_key' => env('REVERB_APP_KEY'),
+        'app_secret' => env('REVERB_APP_SECRET'),
+        'host' => env('REVERB_HOST'),
+        'port' => env('REVERB_PORT', 443),
+        'scheme' => env('REVERB_SCHEME', 'https'),
+    ],
+],
+```
+
+## Queue Configuration
+
+Broadcasting uses queues for better performance. Configure separate queues for messages and events:
+
+```php
+// config/queue.php
+'connections' => [
+    'redis' => [
+        'driver' => 'redis',
+        'connection' => 'default',
+        'queue' => env('REDIS_QUEUE', 'default'),
+        'retry_after' => 90,
+        'block_for' => null,
+    ],
+],
+```
+
+Then run queue workers for each queue:
+
+```bash
+# High-priority messages queue
+php artisan queue:work --queue=messages
+
+# Lower-priority events queue
+php artisan queue:work --queue=default,events
+```
+
+<Note>
+Using separate queues allows you to prioritize message delivery over less critical events like typing indicators.
+</Note>
+
+## Client-Side Setup
+
+Configure Laravel Echo in your JavaScript:
+
+```javascript
+import Echo from 'laravel-echo';
+import Pusher from 'pusher-js';
+
+window.Pusher = Pusher;
+
+window.Echo = new Echo({
+    broadcaster: 'pusher',
+    key: import.meta.env.VITE_PUSHER_APP_KEY,
+    cluster: import.meta.env.VITE_PUSHER_APP_CLUSTER,
+    forceTLS: true
+});
+```
+
+For Reverb:
+
+```javascript
+import Echo from 'laravel-echo';
+
+window.Echo = new Echo({
+    broadcaster: 'reverb',
+    key: import.meta.env.VITE_REVERB_APP_KEY,
+    wsHost: import.meta.env.VITE_REVERB_HOST,
+    wsPort: import.meta.env.VITE_REVERB_PORT,
+    wssPort: import.meta.env.VITE_REVERB_PORT,
+    forceTLS: (import.meta.env.VITE_REVERB_SCHEME ?? 'https') === 'https',
+    enabledTransports: ['ws', 'wss'],
+});
+```
+
+## Broadcasting Without Queues
+
+For development or testing, you can broadcast synchronously:
+
+```bash
+# .env
+QUEUE_CONNECTION=sync
+```
+
+<Warning>
+Synchronous broadcasting will slow down your application. Always use queues in production.
+</Warning>
+
+## Per-Panel Broadcasting
+
+Different panels can have different broadcasting configurations:
+
+```php
+// Admin Panel - Broadcasting enabled with priority queues
+class AdminPanelProvider extends PanelProvider
+{
+    public function panel(Panel $panel): Panel
+    {
+        return $panel
+            ->id('admin')
+            ->path('admin')
+            ->broadcasting()
+            ->messagesQueue('admin-messages')
+            ->eventsQueue('admin-events');
+    }
+}
+
+// Public Panel - Broadcasting enabled with standard queues
+class PublicPanelProvider extends PanelProvider
+{
+    public function panel(Panel $panel): Panel
+    {
+        return $panel
+            ->id('public')
+            ->path('chat')
+            ->broadcasting()
+            ->messagesQueue('messages')
+            ->eventsQueue('default');
+    }
+}
+
+// Internal Panel - Broadcasting disabled
+class InternalPanelProvider extends PanelProvider
+{
+    public function panel(Panel $panel): Panel
+    {
+        return $panel
+            ->id('internal')
+            ->path('internal')
+            ->broadcasting(false); // No real-time updates
+    }
+}
+```
+
+## Checking Broadcasting Status
+
+Verify broadcasting is working:
+
+```bash
+# Test broadcasting
+php artisan tinker
+>>> broadcast(new App\Events\TestEvent());
+
+# Monitor queue jobs
+php artisan queue:listen --verbose
+
+# Check broadcast routes
+php artisan route:list --path=broadcasting
+```
+
+Access broadcasting configuration at runtime:
+
+```php
+use Wirechat\Wirechat\Facades\Wirechat;
+
+$panel = Wirechat::getPanel('admin');
+
+// Check if broadcasting is enabled
+if ($panel->hasBroadcasting()) {
+    $messagesQueue = $panel->getMessagesQueue();
+    $eventsQueue = $panel->getEventsQueue();
+}
+```
+
+## Troubleshooting
+
+<Tabs>
+  <Tab title="Messages Not Broadcasting">
+    1. Verify `.env` has correct broadcast credentials
+    2. Check queue workers are running: `php artisan queue:work`
+    3. Ensure BroadcastServiceProvider is uncommented
+    4. Verify Laravel Echo is properly initialized
+    5. Check browser console for WebSocket errors
+  </Tab>
+  <Tab title="Authorization Failures">
+    1. Verify user is authenticated
+    2. Check panel guards match authenticated user
+    3. Verify `routes/channels.php` authorization logic
+    4. Ensure CSRF token is included in Echo configuration
+  </Tab>
+  <Tab title="Performance Issues">
+    1. Use separate queues for messages and events
+    2. Run multiple queue workers for high-traffic queues
+    3. Consider using Redis for queue backend
+    4. Monitor queue job processing time
+    5. Use horizon for queue monitoring and management
+  </Tab>
+</Tabs>
+
+## Complete Example
+
+```php
+// Panel Provider
+namespace App\Providers\Wirechat;
+
+use Wirechat\Wirechat\Panel;
+use Wirechat\Wirechat\PanelProvider;
+
+class AdminPanelProvider extends PanelProvider
+{
+    public function panel(Panel $panel): Panel
+    {
+        return $panel
+            ->id('admin')
+            ->path('admin')
+            ->guards(['web'])
+            ->broadcasting()
+            ->messagesQueue('messages')
+            ->eventsQueue('default');
+    }
+}
+
+// .env
+BROADCAST_DRIVER=pusher
+QUEUE_CONNECTION=redis
+
+PUSHER_APP_ID=your-app-id
+PUSHER_APP_KEY=your-app-key
+PUSHER_APP_SECRET=your-app-secret
+PUSHER_APP_CLUSTER=mt1
+
+// resources/js/bootstrap.js
+import Echo from 'laravel-echo';
+import Pusher from 'pusher-js';
+
+window.Pusher = Pusher;
+
+window.Echo = new Echo({
+    broadcaster: 'pusher',
+    key: import.meta.env.VITE_PUSHER_APP_KEY,
+    cluster: import.meta.env.VITE_PUSHER_APP_CLUSTER,
+    forceTLS: true
+});
+```

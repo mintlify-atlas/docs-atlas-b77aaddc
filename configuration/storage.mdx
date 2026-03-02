@@ -1,0 +1,364 @@
+---
+title: Storage Configuration
+description: Configure file storage for WireChat attachments and media uploads
+---
+
+## Overview
+
+WireChat uses Laravel's filesystem abstraction for storing chat attachments. Storage can be configured globally in the config file or customized per-panel through attachment settings.
+
+## Global Storage Configuration
+
+The global storage configuration is defined in `config/wirechat.php`:
+
+```php
+return [
+    'storage' => [
+        'disk' => 'public',
+        'visibility' => 'public',
+        'directories' => [
+            'attachments' => 'attachments',
+        ],
+    ],
+];
+```
+
+### Configuration Options
+
+<ParamField path="storage.disk" type="string" default="'public'">
+  Laravel filesystem disk to use for storing attachments.
+  
+  ```php
+  'disk' => 'public',
+  'disk' => 's3',
+  'disk' => 'local',
+  ```
+</ParamField>
+
+<ParamField path="storage.visibility" type="string" default="'public'">
+  File visibility for stored attachments. Can be `'public'` or `'private'`.
+  
+  ```php
+  'visibility' => 'public',  // Files are publicly accessible
+  'visibility' => 'private', // Files require authentication
+  ```
+</ParamField>
+
+<ParamField path="storage.directories.attachments" type="string" default="'attachments'">
+  Directory path within the disk where attachments will be stored.
+  
+  ```php
+  'directories' => [
+      'attachments' => 'attachments',
+  ],
+  ```
+</ParamField>
+
+## Storage Service
+
+WireChat provides a `StorageService` class to access storage configuration:
+
+```php
+use Wirechat\Wirechat\Services\StorageService;
+
+// Get the configured disk
+$disk = StorageService::disk(); // Returns: 'public'
+
+// Get the visibility setting
+$visibility = StorageService::visibility(); // Returns: 'public' or 'private'
+
+// Get the attachments directory
+$directory = StorageService::attachmentsDirectory(); // Returns: 'attachments'
+```
+
+### StorageService Methods
+
+<ParamField path="disk()" type="string">
+  Returns the configured storage disk name.
+  
+  ```php
+  $disk = StorageService::disk();
+  ```
+</ParamField>
+
+<ParamField path="visibility()" type="string">
+  Returns the configured file visibility (`'public'` or `'private'`).
+  
+  ```php
+  $visibility = StorageService::visibility();
+  ```
+</ParamField>
+
+<ParamField path="attachmentsDirectory()" type="string">
+  Returns the attachments directory path.
+  
+  ```php
+  $directory = StorageService::attachmentsDirectory();
+  ```
+</ParamField>
+
+## Configuring Storage Disks
+
+Before using different storage disks, configure them in `config/filesystems.php`:
+
+### Local Storage
+
+```php
+'disks' => [
+    'public' => [
+        'driver' => 'local',
+        'root' => storage_path('app/public'),
+        'url' => env('APP_URL').'/storage',
+        'visibility' => 'public',
+        'throw' => false,
+    ],
+],
+```
+
+Don't forget to create the symbolic link:
+
+```bash
+php artisan storage:link
+```
+
+### Amazon S3
+
+```php
+'disks' => [
+    's3' => [
+        'driver' => 's3',
+        'key' => env('AWS_ACCESS_KEY_ID'),
+        'secret' => env('AWS_SECRET_ACCESS_KEY'),
+        'region' => env('AWS_DEFAULT_REGION'),
+        'bucket' => env('AWS_BUCKET'),
+        'url' => env('AWS_URL'),
+        'endpoint' => env('AWS_ENDPOINT'),
+        'use_path_style_endpoint' => env('AWS_USE_PATH_STYLE_ENDPOINT', false),
+        'throw' => false,
+    ],
+],
+```
+
+Update your `.env` file:
+
+```bash
+AWS_ACCESS_KEY_ID=your-access-key
+AWS_SECRET_ACCESS_KEY=your-secret-key
+AWS_DEFAULT_REGION=us-east-1
+AWS_BUCKET=your-bucket-name
+```
+
+Then update `config/wirechat.php`:
+
+```php
+'storage' => [
+    'disk' => 's3',
+    'visibility' => 'public',
+    'directories' => [
+        'attachments' => 'chat-attachments',
+    ],
+],
+```
+
+<Note>
+Remember to install the AWS SDK: `composer require league/flysystem-aws-s3-v3 "^3.0" --with-all-dependencies`
+</Note>
+
+## Panel-Level Attachment Configuration
+
+While global storage settings define where files are stored, panel-level configuration controls what types of files can be uploaded:
+
+```php
+use Wirechat\Wirechat\Panel;
+use Wirechat\Wirechat\PanelProvider;
+
+class AdminPanelProvider extends PanelProvider
+{
+    public function panel(Panel $panel): Panel
+    {
+        return $panel
+            ->id('admin')
+            ->path('admin')
+            ->attachments() // Enable all attachments
+            ->maxUploads(10)
+            ->mediaMimes(['png', 'jpg', 'jpeg', 'gif', 'webp'])
+            ->mediaMaxUploadSize(20480) // 20MB
+            ->fileMimes(['pdf', 'doc', 'docx', 'zip'])
+            ->fileMaxUploadSize(10240); // 10MB
+    }
+}
+```
+
+See [Panel Configuration](/configuration/panels) for complete attachment options.
+
+## Private Files
+
+For private attachments that require authentication:
+
+### 1. Configure Private Visibility
+
+```php
+// config/wirechat.php
+return [
+    'storage' => [
+        'disk' => 'local',
+        'visibility' => 'private',
+        'directories' => [
+            'attachments' => 'private/attachments',
+        ],
+    ],
+];
+```
+
+### 2. Use a Private Disk
+
+```php
+// config/filesystems.php
+'disks' => [
+    'private' => [
+        'driver' => 'local',
+        'root' => storage_path('app/private'),
+        'visibility' => 'private',
+        'throw' => false,
+    ],
+],
+```
+
+### 3. Update WireChat Configuration
+
+```php
+// config/wirechat.php
+return [
+    'storage' => [
+        'disk' => 'private',
+        'visibility' => 'private',
+        'directories' => [
+            'attachments' => 'attachments',
+        ],
+    ],
+];
+```
+
+<Warning>
+When using private visibility, you'll need to create authenticated routes to serve the files. WireChat does not automatically create these routes.
+</Warning>
+
+## Environment-Specific Storage
+
+Use environment variables for flexible storage configuration:
+
+```php
+// config/wirechat.php
+return [
+    'storage' => [
+        'disk' => env('WIRECHAT_STORAGE_DISK', 'public'),
+        'visibility' => env('WIRECHAT_STORAGE_VISIBILITY', 'public'),
+        'directories' => [
+            'attachments' => env('WIRECHAT_ATTACHMENTS_DIR', 'attachments'),
+        ],
+    ],
+];
+```
+
+Then in your `.env` files:
+
+```bash
+# .env.local
+WIRECHAT_STORAGE_DISK=public
+WIRECHAT_STORAGE_VISIBILITY=public
+WIRECHAT_ATTACHMENTS_DIR=attachments
+
+# .env.production
+WIRECHAT_STORAGE_DISK=s3
+WIRECHAT_STORAGE_VISIBILITY=public
+WIRECHAT_ATTACHMENTS_DIR=production/chat-attachments
+```
+
+## Working with Attachments
+
+Store files using Laravel's Storage facade with WireChat configuration:
+
+```php
+use Illuminate\Support\Facades\Storage;
+use Wirechat\Wirechat\Services\StorageService;
+
+$disk = StorageService::disk();
+$directory = StorageService::attachmentsDirectory();
+$visibility = StorageService::visibility();
+
+// Store a file
+$path = Storage::disk($disk)->putFile(
+    $directory,
+    $file,
+    $visibility
+);
+
+// Get file URL
+$url = Storage::disk($disk)->url($path);
+
+// Delete a file
+Storage::disk($disk)->delete($path);
+```
+
+## Storage Best Practices
+
+<Tabs>
+  <Tab title="Production">
+    - Use cloud storage (S3, DigitalOcean Spaces, etc.) for scalability
+    - Enable CDN for faster file delivery
+    - Set appropriate CORS policies for cross-domain access
+    - Implement file versioning for backup and recovery
+    - Monitor storage usage and costs
+  </Tab>
+  <Tab title="Security">
+    - Use private visibility for sensitive documents
+    - Implement access control on file URLs
+    - Validate file types and sizes on upload
+    - Scan uploaded files for malware
+    - Use signed URLs for temporary file access
+  </Tab>
+  <Tab title="Performance">
+    - Enable lazy loading for media previews
+    - Compress images before storage
+    - Use appropriate image formats (WebP, AVIF)
+    - Implement file size limits per upload
+    - Consider using queues for large file processing
+  </Tab>
+</Tabs>
+
+## Complete Example
+
+```php
+// config/wirechat.php
+return [
+    'storage' => [
+        'disk' => env('WIRECHAT_STORAGE_DISK', 'public'),
+        'visibility' => env('WIRECHAT_STORAGE_VISIBILITY', 'public'),
+        'directories' => [
+            'attachments' => env('WIRECHAT_ATTACHMENTS_DIR', 'chat/attachments'),
+        ],
+    ],
+];
+
+// .env
+WIRECHAT_STORAGE_DISK=s3
+WIRECHAT_STORAGE_VISIBILITY=public
+WIRECHAT_ATTACHMENTS_DIR=production/chat
+
+// Panel Provider
+class AdminPanelProvider extends PanelProvider
+{
+    public function panel(Panel $panel): Panel
+    {
+        return $panel
+            ->id('admin')
+            ->path('admin')
+            ->attachments()
+            ->maxUploads(15)
+            ->mediaMimes(['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'])
+            ->mediaMaxUploadSize(20480) // 20MB
+            ->fileMimes(['pdf', 'doc', 'docx', 'xls', 'xlsx', 'zip', 'txt'])
+            ->fileMaxUploadSize(51200); // 50MB
+    }
+}
+```

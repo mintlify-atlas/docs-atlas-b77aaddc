@@ -1,0 +1,460 @@
+---
+title: Message
+description: Model representing chat messages in WireChat
+---
+
+The `Message` model represents individual messages within conversations. It supports text messages, attachments, replies, and disappearing messages.
+
+## Namespace
+
+```php
+Wirechat\Wirechat\Models\Message
+```
+
+## Properties
+
+<ParamField body="id" type="int">
+  Unique identifier for the message
+</ParamField>
+
+<ParamField body="conversation_id" type="int|null">
+  ID of the conversation this message belongs to
+</ParamField>
+
+<ParamField body="participant_id" type="int">
+  ID of the participant who sent the message
+</ParamField>
+
+<ParamField body="reply_id" type="int|null">
+  ID of the message being replied to (if this is a reply)
+</ParamField>
+
+<ParamField body="body" type="string|null">
+  The message text content
+</ParamField>
+
+<ParamField body="type" type="MessageType">
+  Type of message (TEXT, ATTACHMENT, etc.)
+</ParamField>
+
+<ParamField body="kept_at" type="Carbon|null">
+  Timestamp when message was kept from disappearing
+</ParamField>
+
+<ParamField body="deleted_at" type="Carbon|null">
+  Soft delete timestamp
+</ParamField>
+
+<ParamField body="created_at" type="Carbon|null">
+  Message creation timestamp
+</ParamField>
+
+<ParamField body="updated_at" type="Carbon|null">
+  Last update timestamp
+</ParamField>
+
+## Relationships
+
+### conversation()
+
+Get the conversation this message belongs to.
+
+```php
+public function conversation(): BelongsTo
+```
+
+<ResponseField name="return" type="BelongsTo">
+  Relationship to Conversation model
+</ResponseField>
+
+**Example:**
+```php
+$conversation = $message->conversation;
+echo $conversation->type;
+```
+
+### participant()
+
+Get the participant who sent the message.
+
+```php
+public function participant(): BelongsTo
+```
+
+<ResponseField name="return" type="BelongsTo">
+  Relationship to Participant model
+</ResponseField>
+
+**Example:**
+```php
+$participant = $message->participant;
+$user = $participant->participantable;
+echo $user->name;
+```
+
+### attachment()
+
+Get the attachment associated with this message.
+
+```php
+public function attachment(): MorphOne
+```
+
+<ResponseField name="return" type="MorphOne">
+  Polymorphic relationship to Attachment model
+</ResponseField>
+
+### parent()
+
+Get the message being replied to.
+
+```php
+public function parent(): BelongsTo
+```
+
+<ResponseField name="return" type="BelongsTo">
+  Relationship to parent Message (includes trashed)
+</ResponseField>
+
+**Example:**
+```php
+if ($message->hasParent()) {
+    $parentMessage = $message->parent;
+    echo "Replying to: " . $parentMessage->body;
+}
+```
+
+### reply()
+
+Get replies to this message.
+
+```php
+public function reply(): HasOne
+```
+
+<ResponseField name="return" type="HasOne">
+  Relationship to reply Message
+</ResponseField>
+
+## Accessors
+
+### user
+
+Get the actual user model who sent the message.
+
+```php
+public function getUserAttribute(): Model
+```
+
+<ResponseField name="return" type="Model">
+  The underlying user model (participantable)
+</ResponseField>
+
+**Example:**
+```php
+$user = $message->user;
+echo $user->name; // Direct access to user
+```
+
+### sendable (Deprecated)
+
+Legacy accessor for getting the sender. Use `user` instead.
+
+```php
+public function getSendableAttribute(): Model
+```
+
+<ResponseField name="return" type="Model">
+  The user model (same as `user` attribute)
+</ResponseField>
+
+## Message Status
+
+### readBy()
+
+Check if the message has been read by a user.
+
+```php
+public function readBy(Model|Participant $user): bool
+```
+
+<ParamField body="user" type="Model|Participant" required>
+  The user or participant to check
+</ParamField>
+
+<ResponseField name="return" type="bool">
+  True if the message has been read
+</ResponseField>
+
+**Example:**
+```php
+if ($message->readBy(auth()->user())) {
+    echo "Message has been read";
+}
+```
+
+### ownedBy()
+
+Check if the message is owned by a specific user.
+
+```php
+public function ownedBy($user): bool
+```
+
+<ParamField body="user" type="Model" required>
+  The user to check ownership against
+</ParamField>
+
+<ResponseField name="return" type="bool">
+  True if the message belongs to the user
+</ResponseField>
+
+### belongsToAuth()
+
+Check if the message belongs to the authenticated user.
+
+```php
+public function belongsToAuth(): bool
+```
+
+<ResponseField name="return" type="bool">
+  True if the message belongs to the authenticated user
+</ResponseField>
+
+## Attachment Methods
+
+### hasAttachment()
+
+Check if the message has an attachment.
+
+```php
+public function hasAttachment(): bool
+```
+
+<ResponseField name="return" type="bool">
+  True if an attachment exists
+</ResponseField>
+
+### isAttachment()
+
+Check if the message type is ATTACHMENT.
+
+```php
+public function isAttachment(): bool
+```
+
+<ResponseField name="return" type="bool">
+  True if message type is ATTACHMENT
+</ResponseField>
+
+**Example:**
+```php
+if ($message->isAttachment()) {
+    $attachment = $message->attachment;
+    echo $attachment->url;
+}
+```
+
+## Reply Methods
+
+### hasReply()
+
+Check if this message has replies.
+
+```php
+public function hasReply(): bool
+```
+
+<ResponseField name="return" type="bool">
+  True if replies exist
+</ResponseField>
+
+### hasParent()
+
+Check if this message is a reply to another message.
+
+```php
+public function hasParent(): bool
+```
+
+<ResponseField name="return" type="bool">
+  True if this is a reply
+</ResponseField>
+
+**Example:**
+```php
+if ($message->hasParent()) {
+    $originalMessage = $message->parent;
+    echo "In reply to: {$originalMessage->body}";
+}
+
+if ($message->hasReply()) {
+    echo "This message has replies";
+}
+```
+
+## Message Management
+
+### deleteFor()
+
+Delete the message for a specific user only.
+
+```php
+public function deleteFor(Model|Authenticatable $user): bool|null
+```
+
+<ParamField body="user" type="Model|Authenticatable" required>
+  The user deleting the message
+</ParamField>
+
+<ResponseField name="return" type="bool|null">
+  True if force deleted, null otherwise
+</ResponseField>
+
+**Example:**
+```php
+// Delete for current user only
+$message->deleteFor(auth()->user());
+```
+
+### deleteForEveryone()
+
+Delete the message for all participants.
+
+```php
+public function deleteForEveryone(Model $user): void
+```
+
+<ParamField body="user" type="Model" required>
+  The user requesting deletion (must own the message or be an admin)
+</ParamField>
+
+**Example:**
+```php
+// Delete for everyone (requires ownership or admin)
+$message->deleteForEveryone(auth()->user());
+```
+
+## Content Methods
+
+### isEmoji()
+
+Check if the message body contains only emojis.
+
+```php
+public function isEmoji(): bool
+```
+
+<ResponseField name="return" type="bool">
+  True if the message contains only emoji characters
+</ResponseField>
+
+**Example:**
+```php
+if ($message->isEmoji()) {
+    // Render with larger emoji size
+    echo '<span class="large-emoji">' . $message->body . '</span>';
+}
+```
+
+## Query Scopes
+
+### whereIsNotOwnedBy()
+
+Scope to exclude messages owned by a specific user.
+
+```php
+public function scopeWhereIsNotOwnedBy($query, Model|Authenticatable $user): Builder
+```
+
+<ParamField body="query" type="Builder" required>
+  The query builder instance
+</ParamField>
+
+<ParamField body="user" type="Model|Authenticatable" required>
+  The user to exclude
+</ParamField>
+
+**Example:**
+```php
+// Get messages not sent by current user
+$messages = Message::whereIsNotOwnedBy(auth()->user())->get();
+```
+
+## Example Usage
+
+<Tabs>
+  <Tab title="Basic Usage">
+    ```php
+    use Wirechat\Wirechat\Models\Message;
+
+    // Create a message
+    $message = Message::create([
+        'conversation_id' => $conversation->id,
+        'participant_id' => $participant->id,
+        'body' => 'Hello, world!',
+        'type' => MessageType::TEXT,
+    ]);
+
+    // Check ownership
+    if ($message->ownedBy(auth()->user())) {
+        echo "You sent this message";
+    }
+
+    // Get sender
+    $sender = $message->user;
+    echo "Sent by: {$sender->name}";
+    ```
+  </Tab>
+  
+  <Tab title="Replies">
+    ```php
+    // Create a reply
+    $reply = Message::create([
+        'conversation_id' => $conversation->id,
+        'participant_id' => $participant->id,
+        'reply_id' => $originalMessage->id,
+        'body' => 'This is a reply',
+        'type' => MessageType::TEXT,
+    ]);
+
+    // Check if it's a reply
+    if ($reply->hasParent()) {
+        $parent = $reply->parent;
+        echo "Replying to: {$parent->body}";
+    }
+    ```
+  </Tab>
+  
+  <Tab title="Attachments">
+    ```php
+    // Check for attachments
+    if ($message->isAttachment()) {
+        $attachment = $message->attachment;
+        echo "File: {$attachment->original_name}";
+        echo "URL: {$attachment->url}";
+        echo "Type: {$attachment->mime_type}";
+    }
+    ```
+  </Tab>
+  
+  <Tab title="Deletion">
+    ```php
+    // Delete for current user only
+    $message->deleteFor(auth()->user());
+
+    // Delete for everyone (requires permission)
+    if ($message->ownedBy(auth()->user()) || $participant->isAdmin()) {
+        $message->deleteForEveryone(auth()->user());
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Notes
+
+- Messages are soft-deleted by default using Laravel's `SoftDeletes` trait
+- The `WithoutRemovedMessages` global scope automatically filters deleted messages
+- Deleting a message also deletes its attachment and associated actions
+- Messages with replies are only soft-deleted, not force-deleted
+- In private conversations, messages are force-deleted when both participants delete them

@@ -1,0 +1,259 @@
+---
+title: Installation
+description: Install and configure WireChat in your Laravel application
+---
+
+## Requirements
+
+Before installing WireChat, ensure your environment meets these requirements:
+
+<CardGroup cols={3}>
+  <Card title="PHP" icon="php">
+    `^8.1|^8.2|^8.3|^8.4`
+  </Card>
+  
+  <Card title="Laravel" icon="laravel">
+    `^10.0|^11.0|^12.0`
+  </Card>
+  
+  <Card title="Livewire" icon="bolt">
+    `^3.2.3`
+  </Card>
+</CardGroup>
+
+## Install via Composer
+
+<Steps>
+  <Step title="Install the Package">
+    Install WireChat using Composer:
+    
+    ```bash
+    composer require wirechat/wirechat
+    ```
+  </Step>
+  
+  <Step title="Run the Installation Command">
+    Run the WireChat installation command to publish configuration and migrations:
+    
+    ```bash
+    php artisan wirechat:install
+    ```
+    
+    This command will:
+    - Publish the configuration file to `config/wirechat.php`
+    - Publish migrations to `database/migrations/`
+    - Create a storage symlink
+    - Create a default panel provider at `app/Providers/Wirechat/ChatsPanelProvider.php`
+    
+    <Note>
+      If the config file already exists, you'll be prompted whether to overwrite it.
+    </Note>
+  </Step>
+  
+  <Step title="Run Migrations">
+    Run the migrations to create the necessary database tables:
+    
+    ```bash
+    php artisan migrate
+    ```
+    
+    This creates the following tables:
+    - `wirechat_conversations`
+    - `wirechat_messages`
+    - `wirechat_participants`
+    - `wirechat_groups`
+    - Related tables for attachments and message reads
+  </Step>
+</Steps>
+
+## Configuration
+
+### Configuration File
+
+The main configuration file is located at `config/wirechat.php`:
+
+```php config/wirechat.php
+<?php
+
+return [
+    /*
+    |--------------------------------------------------------------------------
+    | Use UUIDs for Conversations
+    |--------------------------------------------------------------------------
+    */
+    'uses_uuid_for_conversations' => false,
+
+    /*
+    |--------------------------------------------------------------------------
+    | Table Prefix
+    |--------------------------------------------------------------------------
+    */
+    'table_prefix' => 'wirechat_',
+
+    /*
+    |--------------------------------------------------------------------------
+    | Storage
+    |--------------------------------------------------------------------------
+    */
+    'storage' => [
+        'disk' => 'public',
+        'visibility' => 'public',
+        'directories' => [
+            'attachments' => 'attachments',
+        ],
+    ],
+];
+```
+
+<Tip>
+  The `uses_uuid_for_conversations` and `table_prefix` settings are intended for **new applications only** and must be configured before running migrations.
+</Tip>
+
+### Service Provider Registration
+
+WireChat's service provider is automatically registered via Laravel's package auto-discovery. The package is configured in `composer.json`:
+
+```json composer.json
+{
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Wirechat\\Wirechat\\WirechatServiceProvider"
+            ]
+        }
+    }
+}
+```
+
+### Panel Provider
+
+During installation, a default panel provider is created at `app/Providers/Wirechat/ChatsPanelProvider.php`:
+
+```php app/Providers/Wirechat/ChatsPanelProvider.php
+<?php
+
+namespace App\Providers\Wirechat;
+
+use Wirechat\Wirechat\Panel;
+use Wirechat\Wirechat\PanelProvider;
+
+class ChatsPanelProvider extends PanelProvider
+{
+    public function panel(Panel $panel): Panel
+    {
+        return $panel
+             ->id('chats')
+             ->path('chats')
+             ->middleware(['web','auth'])
+             ->default();
+    }
+}
+```
+
+This panel provider is automatically registered in your application:
+- **Laravel 11+**: Added to `bootstrap/providers.php`
+- **Laravel 10**: Added to `config/app.php` providers array
+
+<Note>
+  You can create additional panels for different contexts (e.g., admin chat, support chat) using:
+  
+  ```bash
+  php artisan make:wirechat-panel support
+  ```
+</Note>
+
+## Implement the WirechatUser Interface
+
+Your User model must implement the `WirechatUser` interface to define chat permissions:
+
+```php app/Models/User.php
+<?php
+
+namespace App\Models;
+
+use Illuminate\Foundation\Auth\User as Authenticatable;
+use Wirechat\Wirechat\Contracts\WirechatUser;
+use Wirechat\Wirechat\Panel;
+
+class User extends Authenticatable implements WirechatUser
+{
+    /**
+     * Determine if the user can create new groups.
+     */
+    public function canCreateGroups(): bool
+    {
+        return true;
+    }
+
+    /**
+     * Determine if the user can create new chats with other users.
+     */
+    public function canCreateChats(): bool
+    {
+        return true;
+    }
+
+    /**
+     * Determine if the user can access wirechat panel.
+     */
+    public function canAccessWirechatPanel(Panel $panel): bool
+    {
+        return true;
+    }
+}
+```
+
+<Warning>
+  All three methods (`canCreateGroups`, `canCreateChats`, `canAccessWirechatPanel`) are required by the interface and must be implemented.
+</Warning>
+
+## Add Assets to Your Layout
+
+Add WireChat's assets and styles to your main layout file:
+
+```blade resources/views/layouts/app.blade.php
+<!DOCTYPE html>
+<html lang="{{ str_replace('_', '-', app()->getLocale()) }}">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{ config('app.name') }}</title>
+    
+    @vite(['resources/css/app.css', 'resources/js/app.js'])
+    @livewireStyles
+    @wirechatStyles
+</head>
+<body>
+    {{ $slot }}
+    
+    @livewireScripts
+    @wirechatAssets
+</body>
+</html>
+```
+
+<Note>
+  The `@wirechatStyles` directive injects CSS variables for theming and the `@wirechatAssets` directive loads JavaScript for modal handling and notifications.
+</Note>
+
+## Optional: Publishing Assets
+
+You can optionally publish WireChat's views and translations for customization:
+
+<CodeGroup>
+```bash Publish Views
+php artisan vendor:publish --tag=wirechat-views
+```
+
+```bash Publish Translations
+php artisan vendor:publish --tag=wirechat-translations
+```
+</CodeGroup>
+
+Published files will be available at:
+- Views: `resources/views/vendor/wirechat/`
+- Translations: `lang/vendor/wirechat/`
+
+## What's Next?
+
+Now that WireChat is installed, proceed to the [Quick Start guide](/quickstart) to embed your first chat component.

@@ -1,0 +1,477 @@
+---
+title: Troubleshooting
+description: Common issues and solutions for WireChat
+---
+
+## Common Issues
+
+This guide covers common problems you might encounter when using WireChat and how to solve them.
+
+## Installation & Setup Issues
+
+<Accordion title="Namespace not found after installation">
+  **Problem:** Class `Wirechat\Wirechat\...` not found
+  
+  **Solution:**
+  
+  <Steps>
+    <Step title="Clear autoload cache">
+      ```bash
+      composer dump-autoload
+      ```
+    </Step>
+    
+    <Step title="Verify package is installed">
+      ```bash
+      composer show wirechat/wirechat
+      ```
+    </Step>
+    
+    <Step title="Check namespace in files">
+      Ensure you're using the correct namespace:
+      ```php
+      use Wirechat\Wirechat\Traits\InteractsWithWireChat;
+      ```
+      Not the old namespace:
+      ```php
+      use Namu\WireChat\Traits\Chatable; // ❌ Old
+      ```
+    </Step>
+  </Steps>
+</Accordion>
+
+<Accordion title="Migration errors during installation">
+  **Problem:** Database migration fails with column type errors
+  
+  **Solution:**
+  
+  For new installations, ensure your `config/wirechat.php` is published:
+  
+  ```bash
+  php artisan vendor:publish --tag=wirechat-config
+  ```
+  
+  If using UUIDs, set this before running migrations:
+  
+  ```php
+  'uses_uuid_for_conversations' => true,
+  ```
+  
+  <Warning>
+    This setting only affects **new installations**. Do not change it on existing applications.
+  </Warning>
+</Accordion>
+
+<Accordion title="Table prefix not applying">
+  **Problem:** Tables are created without the configured prefix
+  
+  **Solution:**
+  
+  The `table_prefix` setting in `config/wirechat.php` only affects new installations. If you've already run migrations, you'll need to:
+  
+  1. Drop existing WireChat tables
+  2. Update the config
+  3. Re-run migrations
+  
+  ```bash
+  php artisan migrate:rollback --path=vendor/wirechat/wirechat/database/migrations
+  php artisan migrate --path=vendor/wirechat/wirechat/database/migrations
+  ```
+</Accordion>
+
+## User Model Issues
+
+<Accordion title="User search not working">
+  **Problem:** Cannot find users when creating conversations
+  
+  **Solution:**
+  
+  Ensure your User model implements the `WireChatUser` interface:
+  
+  ```php
+  use Wirechat\Wirechat\Contracts\WireChatUser;
+  use Wirechat\Wirechat\Traits\InteractsWithWireChat;
+  
+  class User extends Authenticatable implements WireChatUser
+  {
+      use InteractsWithWireChat;
+  }
+  ```
+  
+  The interface requires these accessor methods:
+  - `getWirechatAvatarUrlAttribute()`
+  - `getWirechatProfileUrlAttribute()`
+  - `getWirechatDisplayNameAttribute()`
+</Accordion>
+
+<Accordion title="Avatar images not displaying">
+  **Problem:** User avatars show as broken images or SVG fallback
+  
+  **Solution:**
+  
+  Implement the `getWirechatAvatarUrlAttribute()` method in your User model:
+  
+  ```php
+  public function getWirechatAvatarUrlAttribute(): ?string
+  {
+      return $this->avatar 
+          ? Storage::url($this->avatar)
+          : null;
+  }
+  ```
+  
+  WireChat will automatically fall back to an SVG avatar if the method returns `null` or the image fails to load.
+</Accordion>
+
+<Accordion title="Participant limit errors">
+  **Problem:** "Private conversations cannot have more than two participants"
+  
+  **Solution:**
+  
+  This is expected behavior. Private conversations are limited to 2 participants and self conversations to 1 participant. The limits are enforced in `Conversation.php:219-233`.
+  
+  If you need more participants, create a GROUP conversation instead:
+  
+  ```php
+  use Wirechat\Wirechat\Enums\ConversationType;
+  
+  $conversation = Conversation::create([
+      'type' => ConversationType::GROUP,
+  ]);
+  ```
+</Accordion>
+
+## Message & Attachment Issues
+
+<Accordion title="Attachments not uploading">
+  **Problem:** File uploads fail or files are not saved
+  
+  **Solution:**
+  
+  <Steps>
+    <Step title="Check storage configuration">
+      Verify your `config/wirechat.php` storage settings:
+      ```php
+      'storage' => [
+          'disk' => 'public', // or 's3', etc.
+          'visibility' => 'public',
+          'directories' => [
+              'attachments' => 'attachments',
+          ],
+      ],
+      ```
+    </Step>
+    
+    <Step title="Ensure disk is configured">
+      Check `config/filesystems.php` has the disk defined:
+      ```php
+      'public' => [
+          'driver' => 'local',
+          'root' => storage_path('app/public'),
+          'url' => env('APP_URL').'/storage',
+          'visibility' => 'public',
+      ],
+      ```
+    </Step>
+    
+    <Step title="Create storage symlink">
+      ```bash
+      php artisan storage:link
+      ```
+    </Step>
+    
+    <Step title="Check file permissions">
+      Ensure Laravel can write to the storage directory:
+      ```bash
+      chmod -R 775 storage
+      chown -R www-data:www-data storage
+      ```
+    </Step>
+  </Steps>
+</Accordion>
+
+<Accordion title="S3 attachment uploads fail">
+  **Problem:** Attachments don't work with S3 storage
+  
+  **Solution:**
+  
+  WireChat v0.2.5+ uses single file uploads to support S3. Ensure:
+  
+  1. Your S3 disk is properly configured in `config/filesystems.php`
+  2. Update WireChat config to use S3:
+     ```php
+     'storage' => [
+         'disk' => 's3',
+         'visibility' => 'private', // S3 supports private files
+     ],
+     ```
+  3. For private files, WireChat will automatically generate temporary URLs
+</Accordion>
+
+<Accordion title="Messages not appearing in real-time">
+  **Problem:** Messages only appear after page refresh
+  
+  **Solution:**
+  
+  <Steps>
+    <Step title="Check broadcasting is configured">
+      Ensure you have a broadcasting driver set in `.env`:
+      ```bash
+      BROADCAST_DRIVER=pusher # or reverb, redis, etc.
+      ```
+    </Step>
+    
+    <Step title="Verify Echo is installed">
+      ```bash
+      npm install --save-dev laravel-echo pusher-js
+      ```
+    </Step>
+    
+    <Step title="Check channel name format">
+      For v0.3.x, ensure you're using the encoded type format:
+      ```javascript
+      Echo.private(`participant.${encodedType}.${userId}`)
+      ```
+    </Step>
+  </Steps>
+</Accordion>
+
+<Accordion title="Messages deleted by one user affect others">
+  **Problem:** Deleting messages removes them for all participants
+  
+  **Solution:**
+  
+  This is expected in v0.0.x - v0.1.x. WireChat v0.3.0+ implements **Smart Deletes** where messages are only hidden for the user who deleted them, not removed from the database.
+  
+  The deletion is tracked via the `actions` table with type `Actions::DELETE` scoped to each participant.
+</Accordion>
+
+## Migration Issues (v0.2.x → v0.3.x)
+
+<Accordion title="Namespace upgrade command fails on Windows">
+  **Problem:** `wirechat:upgrade-namespace-to-v0.3x` fails with "find/sed not found"
+  
+  **Solution:**
+  
+  The command requires Unix tools. Options:
+  
+  1. **Use Git Bash** (included with Git for Windows)
+  2. **Use WSL** (Windows Subsystem for Linux)
+  3. **Manual replacement** in your IDE:
+     - Find: `Namu\\WireChat` or `Namu\\Wirechat`
+     - Replace: `Wirechat\\Wirechat`
+</Accordion>
+
+<Accordion title="Polymorphic column upgrade fails">
+  **Problem:** `wirechat:upgrade-morph-columns` fails with constraint errors
+  
+  **Solution:**
+  
+  <Steps>
+    <Step title="Check for foreign key constraints">
+      If you've added custom foreign keys on polymorphic columns, you may need to drop them first.
+    </Step>
+    
+    <Step title="For SQLite users">
+      SQLite doesn't support in-place column alterations. You'll need to:
+      1. Backup your data
+      2. Run `php artisan migrate:fresh` (⚠️ destroys data)
+      3. Or manually rebuild the tables
+    </Step>
+    
+    <Step title="Use dry-run first">
+      ```bash
+      php artisan wirechat:upgrade-morph-columns --dry-run
+      ```
+      This shows what would change without applying it.
+    </Step>
+  </Steps>
+</Accordion>
+
+<Accordion title="Old trait name still in use after migration">
+  **Problem:** Code still uses `Chatable` trait after namespace upgrade
+  
+  **Solution:**
+  
+  The namespace upgrade command only changes the namespace, not trait names. Manually update:
+  
+  ```php
+  // Old
+  use Wirechat\Wirechat\Traits\Chatable;
+  
+  // New
+  use Wirechat\Wirechat\Traits\InteractsWithWireChat;
+  ```
+  
+  <Note>
+    `Chatable` is still available but deprecated. It will be removed in v1.0.
+  </Note>
+</Accordion>
+
+## Permission & Authorization Issues
+
+<Accordion title="Cannot add participant - already in conversation">
+  **Problem:** Error 422: "Participant is already in the conversation"
+  
+  **Solution:**
+  
+  This error is thrown when trying to add a user who is already a participant. Check if the user exists first:
+  
+  ```php
+  $participant = $conversation->participant($user);
+  
+  if (!$participant) {
+      $conversation->addParticipant($user);
+  }
+  ```
+</Accordion>
+
+<Accordion title="Cannot add participant removed by admin">
+  **Problem:** Error 403: "Cannot add [user] because they were removed from the group by an Admin"
+  
+  **Solution:**
+  
+  When a user is removed by an admin, they can only be re-added by explicitly undoing the removal:
+  
+  ```php
+  $conversation->addParticipant(
+      user: $user,
+      role: ParticipantRole::PARTICIPANT,
+      undoAdminRemovalAction: true
+  );
+  ```
+  
+  This is implemented in `Conversation.php:179-216`.
+</Accordion>
+
+<Accordion title="User cannot rejoin after leaving group">
+  **Problem:** Error 403: "Cannot add [user] because they left the group"
+  
+  **Solution:**
+  
+  When a user voluntarily exits a group, they cannot be re-added automatically. This is by design to respect the user's choice to leave.
+  
+  Only admin removal can be undone (see above).
+</Accordion>
+
+## Performance Issues
+
+<Accordion title="Slow conversation loading">
+  **Problem:** Conversations take a long time to load
+  
+  **Solution:**
+  
+  <Steps>
+    <Step title="Ensure indexes exist">
+      After running `wirechat:upgrade-morph-columns`, verify indexes were created:
+      - `actions_actionable_idx`
+      - `actions_actor_idx`
+      - `actions_type_idx`
+      - `attachments_attachable_idx`
+    </Step>
+    
+    <Step title="Eager load relationships">
+      ```php
+      $conversations = Conversation::with([
+          'participants.participantable',
+          'lastMessage',
+          'group'
+      ])->get();
+      ```
+    </Step>
+    
+    <Step title="Use pagination">
+      For large conversation lists, paginate:
+      ```php
+      $conversations = Conversation::paginate(20);
+      ```
+    </Step>
+  </Steps>
+</Accordion>
+
+<Accordion title="High database query count">
+  **Problem:** Too many queries executed per page load
+  
+  **Solution:**
+  
+  Enable query logging to identify N+1 problems:
+  
+  ```php
+  \DB::enableQueryLog();
+  // Your code
+  dd(\DB::getQueryLog());
+  ```
+  
+  Common fixes:
+  - Eager load `participants.participantable`
+  - Eager load `lastMessage`
+  - Cache conversation lists
+</Accordion>
+
+## View & UI Issues
+
+<Accordion title="Styles not applying correctly">
+  **Problem:** WireChat components look unstyled
+  
+  **Solution:**
+  
+  <Steps>
+    <Step title="Clear view cache">
+      ```bash
+      php artisan view:clear
+      ```
+    </Step>
+    
+    <Step title="Ensure Tailwind is configured">
+      Add WireChat paths to `tailwind.config.js`:
+      ```javascript
+      content: [
+          './resources/**/*.blade.php',
+          './vendor/wirechat/wirechat/resources/views/**/*.blade.php',
+      ],
+      ```
+    </Step>
+    
+    <Step title="Rebuild assets">
+      ```bash
+      npm run build
+      ```
+    </Step>
+  </Steps>
+</Accordion>
+
+<Accordion title="Dark mode not working">
+  **Problem:** Dark mode theme variables not applying
+  
+  **Solution:**
+  
+  Ensure your theme configuration includes dark mode variables:
+  
+  ```php
+  'theme' => [
+      '--wirechat-primary' => '#3b82f6',
+      '--wirechat-dark-bg' => '#1f2937',
+      // ... other variables
+  ],
+  ```
+  
+  See the [Theming Guide](/features/theming) for full configuration.
+</Accordion>
+
+## Getting Help
+
+<Note>
+  If your issue isn't covered here, please:
+  
+  1. Check the [GitHub Issues](https://github.com/namumakwembo/wirechat/issues)
+  2. Search [existing discussions](https://github.com/namumakwembo/wirechat/discussions)
+  3. Open a new issue with:
+     - WireChat version
+     - Laravel version
+     - Steps to reproduce
+     - Error messages
+</Note>
+
+<Warning>
+  WireChat is currently in **beta** (v0.3.0-beta4). Some features may have bugs or change before the stable release.
+</Warning>

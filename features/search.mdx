@@ -1,0 +1,395 @@
+---
+title: 'Search'
+description: 'Search conversations, users, and messages in WireChat'
+icon: 'magnifying-glass'
+---
+
+WireChat provides powerful search functionality for finding conversations and users quickly. Search can be customized and extended to match your application's needs.
+
+## Chat List Search
+
+Enable search in the conversation list:
+
+```php
+use Wirechat\Wirechat\Panel;
+
+Panel::make('admin')
+    ->chatsSearch()  // Enable conversation search
+    // ... other configuration
+```
+
+### How It Works
+
+The chat search queries both participant names and group information:
+
+```php
+// src/Livewire/Chats/Chats.php:292-315
+protected function applySearchConditions($query): Builder
+{
+    $searchableFields = $this->panel()->getSearchableAttributes();
+    $groupSearchableFields = ['name', 'description'];
+    
+    return $query->withDeleted()->where(function ($query) use ($searchableFields, $groupSearchableFields) {
+        // Search in participant names
+        $query->whereHas('participants', function ($subquery) use ($searchableFields) {
+            $subquery->whereHas('participantable', function ($query2) use ($searchableFields) {
+                $query2->where(function ($query3) use ($searchableFields) {
+                    foreach ($searchableFields as $field) {
+                        $query3->orWhere($field, 'LIKE', '%'.$this->search.'%');
+                    }
+                });
+            });
+        });
+        
+        // Search in group names and descriptions
+        return $query->orWhereHas('group', function ($groupQuery) use ($groupSearchableFields) {
+            $groupQuery->where(function ($query4) use ($groupSearchableFields) {
+                foreach ($groupSearchableFields as $field) {
+                    $query4->orWhere($field, 'LIKE', '%'.$this->search.'%');
+                }
+            });
+        });
+    });
+}
+```
+
+## Searchable User Attributes
+
+Define which user fields should be searchable:
+
+```php
+Panel::make('admin')
+    ->searchableAttributes(['name', 'email', 'username'])
+```
+
+By default, WireChat searches the `name` field:
+
+```php
+// src/Panel/Concerns/HasSearchableAttributes.php
+protected array $searchableAttributes = ['name'];
+```
+
+### Multiple Fields
+
+Search across multiple user attributes:
+
+```php
+Panel::make('admin')
+    ->searchableAttributes([
+        'name',
+        'email', 
+        'username',
+        'profile->bio',  // JSON column
+    ])
+```
+
+## User Search
+
+Implement custom user search for starting new conversations:
+
+```php
+Panel::make('admin')
+    ->searchUsersUsing(function (string $search) {
+        return User::query()
+            ->where(function ($q) use ($search) {
+                $q->where('name', 'like', "%{$search}%")
+                  ->orWhere('email', 'like', "%{$search}%")
+                  ->orWhere('username', 'like', "%{$search}%");
+            })
+            ->where('id', '!=', auth()->id())  // Exclude current user
+            ->limit(20)
+            ->get();
+    })
+```
+
+<Note>
+The search callback must return a **Collection** of models, not a query builder.
+</Note>
+
+### Default User Search
+
+If no custom search is provided, WireChat uses the default implementation:
+
+```php
+// src/Panel/Concerns/HasUsersSearch.php:47-56
+return \App\Models\User::query()
+    ->where(function ($q) use ($needle) {
+        foreach ($this->getSearchableAttributes() as $field) {
+            $q->orWhere($field, 'like', "%{$needle}%");
+        }
+    })
+    ->limit(20)
+    ->get();
+```
+
+## Search Results
+
+User search results are automatically formatted using the `WirechatUserResource`:
+
+```php
+// src/Panel/Concerns/HasUsersSearch.php:24-28
+public function searchUsers(?string $needle)
+{
+    return WirechatUserResource::collection(
+        $this->runSearchCallback($needle)
+    );
+}
+```
+
+## Search in Conversations List
+
+The conversation list automatically applies search when the user types:
+
+```php
+// src/Livewire/Chats/Chats.php:188-192
+public function updatedSearch($value)
+{
+    $this->conversations = [];  // Clear previous results
+    $this->reset(['page', 'canLoadMore']);
+}
+```
+
+### Search Behavior
+
+<Steps>
+  <Step title="Empty Search">
+    When search is empty, conversations are filtered to exclude blanks and deleted chats:
+    
+    ```php
+    ->when(trim($this->search ?? '') == '', function ($query) {
+        return $query->withoutDeleted()->withoutBlanks();
+    })
+    ```
+  </Step>
+  
+  <Step title="Active Search">
+    When searching, deleted conversations are included in results:
+    
+    ```php
+    ->when(trim($this->search ?? '') != '', fn ($query) => 
+        $this->applySearchConditions($query)
+    )
+    ```
+  </Step>
+</Steps>
+
+## Advanced User Search
+
+Implement complex search logic:
+
+```php
+Panel::make('admin')
+    ->searchUsersUsing(function (string $search) {
+        $currentUser = auth()->user();
+        
+        return User::query()
+            // Search by name, email, username
+            ->where(function ($q) use ($search) {
+                $q->where('name', 'like', "%{$search}%")
+                  ->orWhere('email', 'like', "%{$search}%")
+                  ->orWhere('username', 'like', "%{$search}%");
+            })
+            // Exclude current user
+            ->where('id', '!=', $currentUser->id)
+            // Only active users
+            ->where('status', 'active')
+            // Order by relevance
+            ->orderByRaw(
+                "CASE 
+                    WHEN name LIKE ? THEN 1
+                    WHEN username LIKE ? THEN 2
+                    WHEN email LIKE ? THEN 3
+                    ELSE 4
+                END",
+                ["{$search}%", "{$search}%", "{$search}%"]
+            )
+            ->limit(20)
+            ->get();
+    })
+```
+
+## Searching with Relationships
+
+Include related data in search:
+
+```php
+Panel::make('admin')
+    ->searchUsersUsing(function (string $search) {
+        return User::with(['profile', 'department'])
+            ->where(function ($q) use ($search) {
+                $q->where('name', 'like', "%{$search}%")
+                  // Search in relationships
+                  ->orWhereHas('department', function ($dq) use ($search) {
+                      $dq->where('name', 'like', "%{$search}%");
+                  })
+                  ->orWhereHas('profile', function ($pq) use ($search) {
+                      $pq->where('bio', 'like', "%{$search}%");
+                  });
+            })
+            ->limit(20)
+            ->get();
+    })
+```
+
+## Column Existence Check
+
+WireChat safely checks for column existence before searching:
+
+```php
+// src/Livewire/Chats/Chats.php:326-332
+protected function columnExists($table, $field, &$columnCache)
+{
+    if (!isset($columnCache[$table])) {
+        $columnCache[$table] = Schema::getColumnListing($table);
+    }
+    
+    return in_array($field, $columnCache[$table]);
+}
+```
+
+<Tip>
+Column existence is cached per request to improve performance when searching across multiple fields.
+</Tip>
+
+## Search Performance
+
+Optimize search for better performance:
+
+### Add Database Indexes
+
+```php
+// In a migration
+Schema::table('users', function (Blueprint $table) {
+    $table->index('name');
+    $table->index('email');
+    $table->index('username');
+    
+    // Full-text search (MySQL 5.7+)
+    $table->fullText(['name', 'email', 'username']);
+});
+```
+
+### Use Full-Text Search
+
+```php
+Panel::make('admin')
+    ->searchUsersUsing(function (string $search) {
+        return User::query()
+            ->whereFullText(['name', 'email', 'username'], $search)
+            ->limit(20)
+            ->get();
+    })
+```
+
+### Implement Search Service
+
+For large-scale applications, use dedicated search services:
+
+```php
+use Laravel\Scout\Searchable;
+
+class User extends Model
+{
+    use Searchable;
+    
+    public function toSearchableArray()
+    {
+        return [
+            'name' => $this->name,
+            'email' => $this->email,
+            'username' => $this->username,
+        ];
+    }
+}
+
+// In panel configuration
+Panel::make('admin')
+    ->searchUsersUsing(function (string $search) {
+        return User::search($search)
+            ->take(20)
+            ->get();
+    })
+```
+
+## Disable Search
+
+To disable search functionality:
+
+```php
+Panel::make('admin')
+    ->chatsSearch(false)  // Disable conversation search
+```
+
+## Search UI Behavior
+
+<CardGroup cols={2}>
+  <Card title="Real-time Search" icon="bolt">
+    Search results update as users type in the search field
+  </Card>
+  <Card title="Deleted Conversations" icon="trash-can">
+    Deleted chats appear in search results for easy recovery
+  </Card>
+  <Card title="Pagination Reset" icon="rotate">
+    Search automatically resets pagination to show fresh results
+  </Card>
+  <Card title="Empty State" icon="magnifying-glass-minus">
+    Clear feedback when no results match the search query
+  </Card>
+</CardGroup>
+
+## Testing Search
+
+Test your search implementation:
+
+```php
+use App\Models\User;
+
+/** @test */
+public function it_searches_users_by_name()
+{
+    $user1 = User::factory()->create(['name' => 'John Doe']);
+    $user2 = User::factory()->create(['name' => 'Jane Smith']);
+    $user3 = User::factory()->create(['name' => 'Bob Johnson']);
+    
+    $panel = Wirechat::panel('admin');
+    $results = $panel->searchUsers('John');
+    
+    $this->assertCount(2, $results);
+    $this->assertTrue($results->contains('id', $user1->id));
+    $this->assertTrue($results->contains('id', $user3->id));
+}
+```
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Limit Results" icon="list-check">
+    Always limit search results (e.g., 20 users) for performance
+  </Card>
+  <Card title="Add Indexes" icon="database">
+    Create database indexes on searchable fields
+  </Card>
+  <Card title="Case Sensitivity" icon="text-height">
+    Use case-insensitive search with LIKE or ILIKE
+  </Card>
+  <Card title="Exclude Current User" icon="user-slash">
+    Remove the authenticated user from user search results
+  </Card>
+</CardGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Private Chats" icon="messages" href="/features/private-chats">
+    Start conversations from search results
+  </Card>
+  <Card title="Theming" icon="palette" href="/features/theming">
+    Customize the search interface appearance
+  </Card>
+  <Card title="User Setup" icon="user-gear" href="/getting-started/user-setup">
+    Configure user model for search
+  </Card>
+  <Card title="Permissions" icon="shield" href="/configuration/permissions">
+    Control who can search and create conversations
+  </Card>
+</CardGroup>

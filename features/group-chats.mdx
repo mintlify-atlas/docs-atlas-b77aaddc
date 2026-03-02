@@ -1,0 +1,389 @@
+---
+title: 'Group Chats'
+description: 'Create and manage multi-user group conversations with roles and permissions'
+icon: 'users'
+---
+
+Group chats enable multi-user conversations with customizable permissions, roles, and administrative controls. Create communities, teams, or broadcast channels with ease.
+
+## Creating Groups
+
+Create a new group with the `createGroup()` method:
+
+```php
+use App\Models\User;
+
+$user = auth()->user();
+
+// Basic group
+$conversation = $user->createGroup(
+    name: 'Engineering Team',
+    description: 'Daily standups and project updates'
+);
+
+// Group with cover photo
+$conversation = $user->createGroup(
+    name: 'Book Club',
+    description: 'Monthly book discussions',
+    photo: $request->file('cover')
+);
+```
+
+<Note>
+The user who creates the group automatically becomes the **Owner** with full administrative privileges.
+</Note>
+
+## Group Structure
+
+Every group conversation has an associated `Group` model with metadata:
+
+```php
+// Access group details
+$group = $conversation->group;
+
+echo $group->name;         // 'Engineering Team'
+echo $group->description;  // 'Daily standups...'
+echo $group->cover_url;    // URL to cover image
+echo $group->type;         // GroupType enum
+```
+
+## Participant Roles
+
+Groups support three participant roles:
+
+<CardGroup cols={3}>
+  <Card title="Owner" icon="crown">
+    Full control: manage members, admins, and group settings
+  </Card>
+  <Card title="Admin" icon="shield">
+    Moderate conversations, add/remove members
+  </Card>
+  <Card title="Participant" icon="user">
+    Send messages and view conversation
+  </Card>
+</CardGroup>
+
+### Checking Roles
+
+```php
+use Wirechat\Wirechat\Enums\ParticipantRole;
+
+// Check if user is owner
+if ($conversation->isOwner($user)) {
+    // User is the group owner
+}
+
+// Check if user is admin (owner or admin)
+if ($conversation->isAdmin($user)) {
+    // User has admin privileges
+}
+
+// Via participant record
+$participant = $conversation->participant($user);
+if ($participant->isOwner()) {
+    // Participant is owner
+}
+
+if ($participant->isAdmin()) {
+    // Participant is admin or owner
+}
+```
+
+## Adding Members
+
+<Steps>
+  <Step title="Add a Participant">
+    Add users to the group with a specific role:
+    
+    ```php
+    // Add as regular participant
+    $participant = $conversation->addParticipant(
+        $user, 
+        ParticipantRole::PARTICIPANT
+    );
+    
+    // Add as admin
+    $participant = $conversation->addParticipant(
+        $user, 
+        ParticipantRole::ADMIN
+    );
+    ```
+  </Step>
+  
+  <Step title="Handle Existing Members">
+    WireChat prevents duplicate participants and handles edge cases:
+    
+    ```php
+    // If user was previously removed by admin, you can re-add them
+    $participant = $conversation->addParticipant(
+        $user,
+        ParticipantRole::PARTICIPANT,
+        undoAdminRemovalAction: true
+    );
+    ```
+  </Step>
+</Steps>
+
+### Participant Limits
+
+Private and self conversations have automatic participant limits:
+
+```php
+// src/Models/Conversation.php:219-233
+if ($this->isPrivate()) {
+    abort_if(
+        $this->participants()->count() >= 2,
+        422,
+        'Private conversations cannot have more than two participants.'
+    );
+}
+
+if ($this->isSelf()) {
+    abort_if(
+        $this->participants()->count() >= 1,
+        422,
+        'Self conversations cannot have more than one participant.'
+    );
+}
+```
+
+## Removing Members
+
+### Member Self-Exit
+
+Members can voluntarily leave a group:
+
+```php
+// User exits the conversation
+$user->exitConversation($conversation);
+
+// Or via participant
+$participant->exitConversation();
+```
+
+<Note>
+- Group owners cannot exit their own groups
+- Users who exit voluntarily cannot be re-added without special permission
+- Private conversations cannot be exited
+</Note>
+
+### Admin Removal
+
+Admins can remove other members:
+
+```php
+$admin = auth()->user();
+$memberParticipant = $conversation->participant($memberToRemove);
+
+// Remove member (requires admin to be admin/owner)
+$memberParticipant->removeByAdmin($admin);
+
+// Check if member was removed by admin
+if ($memberParticipant->isRemovedByAdmin()) {
+    // Member was removed by an administrator
+}
+```
+
+## Group Permissions
+
+Control what group members can do:
+
+```php
+$group = $conversation->group;
+
+// Check permissions
+if ($group->allowsMembersToSendMessages()) {
+    // Members can send messages
+}
+
+if ($group->allowsMembersToAddOthers()) {
+    // Members can invite others
+}
+
+if ($group->allowsMembersToEditGroupInfo()) {
+    // Members can edit group name/description
+}
+
+// Update permissions (requires admin)
+$group->update([
+    'allow_members_to_send_messages' => true,
+    'allow_members_to_add_others' => false,
+    'allow_members_to_edit_group_info' => false,
+]);
+```
+
+### Permission Properties
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `allow_members_to_send_messages` | boolean | Can regular members send messages |
+| `allow_members_to_add_others` | boolean | Can members invite new participants |
+| `allow_members_to_edit_group_info` | boolean | Can members edit name/description |
+| `admins_must_approve_new_members` | boolean | Require admin approval for new joins |
+
+## Group Configuration
+
+Customize group settings through your panel:
+
+```php
+use Wirechat\Wirechat\Panel;
+
+Panel::make('admin')
+    ->createGroupAction()  // Enable group creation
+    ->groups()            // Enable groups feature
+    // ... other configuration
+```
+
+## Managing Group Info
+
+Update group details:
+
+```php
+$group = $conversation->group;
+
+// Update basic info
+$group->update([
+    'name' => 'New Team Name',
+    'description' => 'Updated description',
+]);
+
+// Update cover photo
+if ($request->hasFile('cover')) {
+    // Delete old cover
+    $group->cover?->delete();
+    
+    // Upload new cover
+    $path = $request->file('cover')->store(
+        Wirechat::storage()->attachmentsDirectory(),
+        Wirechat::storage()->disk()
+    );
+    
+    $group->cover()->create([
+        'file_path' => $path,
+        'file_name' => basename($path),
+        'original_name' => $request->file('cover')->getClientOriginalName(),
+        'mime_type' => $request->file('cover')->getMimeType(),
+        'url' => Storage::disk(Wirechat::storage()->disk())->url($path),
+    ]);
+}
+```
+
+## Participant Management
+
+Retrieve and manage group participants:
+
+```php
+// Get all participants
+$participants = $conversation->participants;
+
+// Get all except current user
+$peerParticipants = $conversation->peerParticipants($currentUser);
+
+// Count participants
+$count = $conversation->participants()->count();
+
+// Get participants by role
+$admins = $conversation->participants()
+    ->whereIn('role', [ParticipantRole::OWNER, ParticipantRole::ADMIN])
+    ->get();
+```
+
+## Group Types
+
+Groups can have different types defined by the `GroupType` enum:
+
+```php
+use Wirechat\Wirechat\Enums\GroupType;
+
+// Set group type
+$group->type = GroupType::GROUP;  // Standard group
+$group->save();
+```
+
+## Broadcasting in Groups
+
+Messages in groups are broadcast to all participants:
+
+```php
+// When a message is sent, it's broadcast to the group channel
+// src/Livewire/Chat/Chat.php:673
+broadcast(new MessageCreated($message, $this->panel()->getId()))->toOthers();
+
+// Notifications are sent to all participants except sender
+NotifyParticipants::dispatch($this->conversation, $message, $this->panel);
+```
+
+## Message Deletion in Groups
+
+Admins have special deletion privileges:
+
+```php
+$authParticipant = $conversation->participant($currentUser);
+
+// Regular members can only delete their own messages
+// Admins can delete any message
+if ($message->ownedBy($currentUser) || 
+    ($authParticipant->isAdmin() && $conversation->isGroup())) {
+    $message->deleteForEveryone($currentUser);
+}
+```
+
+## Checking Group Status
+
+```php
+// Check if conversation is a group
+if ($conversation->isGroup()) {
+    // This is a group conversation
+    $group = $conversation->group;
+}
+
+// Check group ownership
+if ($group->isOwnedBy($user)) {
+    // User owns this group
+}
+```
+
+## Disabling Groups
+
+If you don't want groups in your application:
+
+```php
+Panel::make('admin')
+    ->groups(false)              // Disable groups
+    ->createGroupAction(false)   // Hide group creation button
+    // ... other configuration
+```
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Owner Protection" icon="shield-check">
+    Always prevent owners from exiting or being removed from their groups
+  </Card>
+  <Card title="Permission Checks" icon="lock">
+    Verify admin status before allowing group modifications
+  </Card>
+  <Card title="Exit vs Remove" icon="door-open">
+    Track whether users exited voluntarily or were removed by admins
+  </Card>
+  <Card title="Participant Limits" icon="users-gear">
+    Consider implementing maximum participant limits for performance
+  </Card>
+</CardGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Permissions" icon="shield-halved" href="/configuration/permissions">
+    Configure who can create and manage groups
+  </Card>
+  <Card title="Notifications" icon="bell" href="/features/notifications">
+    Set up notifications for group messages
+  </Card>
+  <Card title="Attachments" icon="paperclip" href="/features/attachments">
+    Share files and media in group chats
+  </Card>
+  <Card title="Theming" icon="palette" href="/features/theming">
+    Customize the group chat interface
+  </Card>
+</CardGroup>

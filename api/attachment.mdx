@@ -1,0 +1,323 @@
+---
+title: Attachment
+description: Model for file attachments in WireChat
+---
+
+The `Attachment` model handles file uploads and storage for messages and group covers. It supports both local and cloud storage (like S3) with automatic URL generation.
+
+## Namespace
+
+```php
+Wirechat\Wirechat\Models\Attachment
+```
+
+## Properties
+
+<ParamField body="id" type="int">
+  Unique identifier for the attachment
+</ParamField>
+
+<ParamField body="attachable_type" type="string">
+  The model type this attachment belongs to (polymorphic)
+</ParamField>
+
+<ParamField body="attachable_id" type="int">
+  The ID of the model this attachment belongs to
+</ParamField>
+
+<ParamField body="file_path" type="string">
+  Storage path to the file
+</ParamField>
+
+<ParamField body="file_name" type="string">
+  Generated unique file name
+</ParamField>
+
+<ParamField body="original_name" type="string">
+  Original file name from upload
+</ParamField>
+
+<ParamField body="url" type="string">
+  Generated URL to access the file (computed attribute)
+</ParamField>
+
+<ParamField body="mime_type" type="string">
+  MIME type of the file (e.g., "image/png", "application/pdf")
+</ParamField>
+
+<ParamField body="created_at" type="Carbon|null">
+  Upload timestamp
+</ParamField>
+
+<ParamField body="updated_at" type="Carbon|null">
+  Last update timestamp
+</ParamField>
+
+## Relationships
+
+### attachable()
+
+Get the model that owns this attachment.
+
+```php
+public function attachable(): MorphTo
+```
+
+<ResponseField name="return" type="MorphTo">
+  Polymorphic relationship to parent model (Message or Group)
+</ResponseField>
+
+**Example:**
+```php
+$attachment = Attachment::find(1);
+$owner = $attachment->attachable;
+
+if ($owner instanceof Message) {
+    echo "Attached to message: {$owner->body}";
+} elseif ($owner instanceof Group) {
+    echo "Group cover for: {$owner->name}";
+}
+```
+
+## Accessors
+
+### url
+
+Get the full URL to access the file.
+
+```php
+protected function url(): Attribute
+```
+
+<ResponseField name="return" type="string|null">
+  The full URL to the file, or null if no file path exists
+</ResponseField>
+
+**Behavior:**
+- For public disks: Returns a standard public URL
+- For private disks: Returns a temporary signed URL (5 minutes expiration)
+- Automatically uses the configured WireChat storage disk
+
+**Example:**
+```php
+$attachment = Attachment::find(1);
+echo $attachment->url; // Automatically generates appropriate URL
+```
+
+### clean_mime_type
+
+Get the simplified MIME type (removes the prefix).
+
+```php
+public function getCleanMimeTypeAttribute(): string
+```
+
+<ResponseField name="return" type="string">
+  The file type without the category prefix (e.g., "png" instead of "image/png")
+</ResponseField>
+
+**Example:**
+```php
+// If mime_type is "image/png"
+echo $attachment->clean_mime_type; // Outputs: "png"
+
+// If mime_type is "application/pdf"
+echo $attachment->clean_mime_type; // Outputs: "pdf"
+```
+
+## Storage Management
+
+Attachments automatically handle file deletion when the model is deleted.
+
+**Automatic File Deletion:**
+```php
+// Deleting an attachment also deletes the physical file
+$attachment->delete();
+// File at $attachment->file_path is automatically removed from storage
+```
+
+## Example Usage
+
+<Tabs>
+  <Tab title="Creating Attachments">
+    ```php
+    use Wirechat\Wirechat\Models\Attachment;
+    use Illuminate\Support\Facades\Storage;
+
+    // Upload file for a message
+    $file = $request->file('attachment');
+    $path = $file->store('chat-attachments', Wirechat::storage()->disk());
+
+    $attachment = Attachment::create([
+        'attachable_type' => Message::class,
+        'attachable_id' => $message->id,
+        'file_path' => $path,
+        'file_name' => $file->hashName(),
+        'original_name' => $file->getClientOriginalName(),
+        'mime_type' => $file->getMimeType(),
+    ]);
+
+    echo "File uploaded: {$attachment->url}";
+    ```
+  </Tab>
+  
+  <Tab title="Accessing Files">
+    ```php
+    // Get attachment URL
+    $message = Message::with('attachment')->find(1);
+    
+    if ($message->hasAttachment()) {
+        $attachment = $message->attachment;
+        
+        echo "File: {$attachment->original_name}";
+        echo "Type: {$attachment->mime_type}";
+        echo "URL: {$attachment->url}";
+        echo "Size: {$attachment->clean_mime_type}";
+    }
+
+    // Display image
+    if (str_starts_with($attachment->mime_type, 'image/')) {
+        echo '<img src="' . $attachment->url . '" alt="Image">';
+    }
+    ```
+  </Tab>
+  
+  <Tab title="Group Covers">
+    ```php
+    use Wirechat\Wirechat\Models\Group;
+
+    // Upload group cover
+    $group = Group::find(1);
+    $coverFile = $request->file('cover');
+    $path = $coverFile->store('group-covers', Wirechat::storage()->disk());
+
+    $cover = Attachment::create([
+        'attachable_type' => Group::class,
+        'attachable_id' => $group->id,
+        'file_path' => $path,
+        'file_name' => $coverFile->hashName(),
+        'original_name' => $coverFile->getClientOriginalName(),
+        'mime_type' => $coverFile->getMimeType(),
+    ]);
+
+    // Access cover via group
+    echo $group->cover_url; // Uses attachment URL
+    ```
+  </Tab>
+  
+  <Tab title="File Type Handling">
+    ```php
+    // Determine file type and render appropriately
+    function renderAttachment(Attachment $attachment) {
+        $mimeType = $attachment->mime_type;
+        $url = $attachment->url;
+        
+        if (str_starts_with($mimeType, 'image/')) {
+            return '<img src="' . $url . '" alt="Image" class="max-w-md">';
+        }
+        
+        if (str_starts_with($mimeType, 'video/')) {
+            return '<video src="' . $url . '" controls class="max-w-md"></video>';
+        }
+        
+        if (str_starts_with($mimeType, 'audio/')) {
+            return '<audio src="' . $url . '" controls></audio>';
+        }
+        
+        // Generic file download
+        return '<a href="' . $url . '" download="' . $attachment->original_name . '">' .
+               'Download ' . $attachment->original_name .
+               '</a>';
+    }
+
+    // Usage
+    echo renderAttachment($message->attachment);
+    ```
+  </Tab>
+  
+  <Tab title="Storage Configuration">
+    ```php
+    use Wirechat\Wirechat\Facades\Wirechat;
+
+    // Get storage configuration
+    $disk = Wirechat::storage()->disk(); // e.g., 'public' or 's3'
+    $visibility = Wirechat::storage()->visibility(); // 'public' or 'private'
+
+    // Upload with configuration
+    $path = $file->store(
+        'attachments',
+        ['disk' => $disk, 'visibility' => $visibility]
+    );
+
+    // Create attachment
+    $attachment = Attachment::create([
+        'attachable_type' => $attachableType,
+        'attachable_id' => $attachableId,
+        'file_path' => $path,
+        'file_name' => $file->hashName(),
+        'original_name' => $file->getClientOriginalName(),
+        'mime_type' => $file->getMimeType(),
+    ]);
+    ```
+  </Tab>
+</Tabs>
+
+## URL Generation
+
+The `url` attribute automatically generates the correct URL based on storage configuration:
+
+<Expandable title="Public Storage">
+  For public disks, returns a standard public URL:
+  ```php
+  // Returns: https://example.com/storage/attachments/abc123.png
+  $url = $attachment->url;
+  ```
+</Expandable>
+
+<Expandable title="Private Storage">
+  For private disks (like S3 with private ACL), returns a temporary signed URL:
+  ```php
+  // Returns: https://s3.amazonaws.com/bucket/file.png?X-Amz-Signature=...
+  // Valid for 5 minutes
+  $url = $attachment->url;
+  ```
+</Expandable>
+
+## File Deletion
+
+When an attachment is deleted, the physical file is automatically removed:
+
+```php
+// Delete attachment (also deletes file from storage)
+$attachment->delete();
+
+// The file at $attachment->file_path is removed from the configured disk
+```
+
+## Supported MIME Types
+
+Common MIME types handled by WireChat:
+
+| Type | MIME Type | Extension |
+|------|-----------|----------|
+| Image | image/png | .png |
+| Image | image/jpeg | .jpg, .jpeg |
+| Image | image/gif | .gif |
+| Image | image/webp | .webp |
+| Video | video/mp4 | .mp4 |
+| Video | video/webm | .webm |
+| Audio | audio/mpeg | .mp3 |
+| Audio | audio/wav | .wav |
+| Document | application/pdf | .pdf |
+| Document | application/msword | .doc |
+| Document | application/vnd.openxmlformats-officedocument.wordprocessingml.document | .docx |
+
+## Notes
+
+- Attachments are polymorphic and can belong to Messages or Groups
+- The `url` attribute is computed dynamically based on storage configuration
+- Private storage automatically generates temporary signed URLs
+- Deleting an attachment also removes the physical file
+- File names are hashed to prevent collisions and ensure uniqueness
+- Original file names are preserved for display purposes
+- The attachment model respects WireChat's global storage configuration

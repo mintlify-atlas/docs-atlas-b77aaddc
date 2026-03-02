@@ -1,0 +1,462 @@
+---
+title: 'Notifications'
+description: 'Real-time notifications for new messages and conversation updates'
+icon: 'bell'
+---
+
+WireChat provides real-time notifications to keep users informed of new messages and conversation activity. Notifications are delivered via Laravel's broadcasting system and can include web push notifications.
+
+## Broadcasting Setup
+
+Enable broadcasting in your panel configuration:
+
+```php
+use Wirechat\Wirechat\Panel;
+
+Panel::make('admin')
+    ->broadcasting()  // Enable real-time broadcasting
+    // ... other configuration
+```
+
+### Configure Broadcasting Channels
+
+Specify your broadcasting driver:
+
+```php
+// config/broadcasting.php
+'default' => env('BROADCAST_DRIVER', 'pusher'),
+
+'connections' => [
+    'pusher' => [
+        'driver' => 'pusher',
+        'key' => env('PUSHER_APP_KEY'),
+        'secret' => env('PUSHER_APP_SECRET'),
+        'app_id' => env('PUSHER_APP_ID'),
+        'options' => [
+            'cluster' => env('PUSHER_APP_CLUSTER'),
+            'useTLS' => true,
+        ],
+    ],
+    
+    'reverb' => [
+        'driver' => 'reverb',
+        'key' => env('REVERB_APP_KEY'),
+        'secret' => env('REVERB_APP_SECRET'),
+        'app_id' => env('REVERB_APP_ID'),
+        'options' => [
+            'host' => env('REVERB_HOST'),
+            'port' => env('REVERB_PORT', 443),
+            'scheme' => env('REVERB_SCHEME', 'https'),
+        ],
+    ],
+],
+```
+
+<Tip>
+Laravel Reverb is the recommended broadcasting driver for new projects. It's included with Laravel and requires no external services.
+</Tip>
+
+## Message Notifications
+
+When a message is sent, WireChat dispatches notifications to all participants:
+
+```php
+// src/Livewire/Chat/Chat.php:673-680
+try {
+    // Broadcast message created event
+    broadcast(new MessageCreated($message, $this->panel()->getId()))->toOthers();
+    
+    // Notify participants if conversation is NOT self
+    if (!$this->conversation->isSelf()) {
+        NotifyParticipants::dispatch($this->conversation, $message, $this->panel);
+    }
+} catch (\Throwable $th) {
+    Log::error($th->getMessage());
+}
+```
+
+## Notification Channels
+
+WireChat creates private channels for each participant:
+
+```php
+// Participant channel format
+{$panelId}.participant.{$encodedType}.{$userId}
+
+// Conversation channel format
+{$panelId}.conversation.{$conversationId}
+```
+
+### Listening for Notifications
+
+Components automatically listen for relevant events:
+
+```php
+// src/Livewire/Chats/Chats.php:95-96
+$channelName = "$panelId.participant.$encodedType.$userId";
+$listeners["echo-private:{$channelName},.Wirechat\\Wirechat\\Events\\NotifyParticipant"] = 'refreshComponent';
+```
+
+## NewMessageNotification
+
+The notification class broadcasts new messages:
+
+```php
+// src/Notifications/NewMessageNotification.php
+namespace Wirechat\Wirechat\Notifications;
+
+class NewMessageNotification extends Notification implements ShouldBroadcastNow
+{
+    public $message;
+    
+    public function __construct(Message $message)
+    {
+        $this->message = $message;
+    }
+    
+    public function via(object $notifiable): array
+    {
+        return ['broadcast'];
+    }
+    
+    public function toBroadcast($notifiable)
+    {
+        return new BroadcastMessage([
+            'message_id' => $this->message->id,
+            'conversation_id' => $this->message->conversation_id,
+        ]);
+    }
+}
+```
+
+<Note>
+The notification implements `ShouldBroadcastNow` to ensure messages are sent immediately, not queued.
+</Note>
+
+## Web Push Notifications
+
+Enable browser push notifications:
+
+```php
+Panel::make('admin')
+    ->webPushNotifications()  // Enable web push
+    ->serviceWorkerPath(asset('sw.js'))  // Optional: custom path
+```
+
+### Service Worker Setup
+
+Create a service worker file in your `public` directory:
+
+```javascript
+// public/sw.js
+self.addEventListener('push', function(event) {
+    const data = event.data.json();
+    
+    const options = {
+        body: data.body,
+        icon: data.icon || '/icon.png',
+        badge: '/badge.png',
+        vibrate: [200, 100, 200],
+        data: {
+            conversationId: data.conversation_id,
+            url: data.url
+        }
+    };
+    
+    event.waitUntil(
+        self.registration.showNotification(data.title, options)
+    );
+});
+
+self.addEventListener('notificationclick', function(event) {
+    event.notification.close();
+    event.waitUntil(
+        clients.openWindow(event.notification.data.url)
+    );
+});
+```
+
+### Default Service Worker Path
+
+```php
+// src/Panel/Concerns/HasWebPushNotifications.php:42-44
+if ($this->serviceWorkerPath === null) {
+    $this->serviceWorkerPath(asset('sw.js'));
+}
+```
+
+## NotifyParticipants Job
+
+Messages are broadcast to participants via a queued job:
+
+```php
+use Wirechat\Wirechat\Jobs\NotifyParticipants;
+
+// Dispatch notification job
+NotifyParticipants::dispatch($conversation, $message, $panel);
+```
+
+This job:
+- Gets all participants except the sender
+- Sends notification to each participant
+- Respects user notification preferences
+
+## Broadcasting Events
+
+### MessageCreated Event
+
+Broadcasts when a new message is sent:
+
+```php
+namespace Wirechat\Wirechat\Events;
+
+class MessageCreated implements ShouldBroadcastNow
+{
+    public function __construct(
+        public Message $message,
+        public string $panelId
+    ) {}
+    
+    public function broadcastOn(): array
+    {
+        return [
+            new PrivateChannel(
+                "{$this->panelId}.conversation.{$this->message->conversation_id}"
+            )
+        ];
+    }
+}
+```
+
+### MessageDeleted Event
+
+Broadcasts when a message is removed:
+
+```php
+namespace Wirechat\Wirechat\Events;
+
+class MessageDeleted implements ShouldBroadcastNow
+{
+    public function __construct(
+        public Message $message,
+    ) {}
+    
+    public function broadcastOn(): array
+    {
+        return [
+            new PrivateChannel(
+                "{$this->panelId}.conversation.{$this->message->conversation_id}"
+            )
+        ];
+    }
+}
+```
+
+## Handling Incoming Notifications
+
+Livewire components automatically handle notification events:
+
+```php
+// src/Livewire/Chat/Chat.php:138-168
+public function appendNewMessage($event)
+{
+    // Verify message belongs to this conversation
+    if ($event['message']['conversation_id'] == $this->conversation->id) {
+        $newMessage = Message::find($event['message']['id']);
+        
+        // Ignore own messages
+        if ($newMessage->ownedBy(auth()->user())) {
+            return null;
+        }
+        
+        // Add message to view
+        $this->pushMessage($newMessage);
+        
+        // Mark as read
+        $this->conversation->markAsRead();
+        
+        // Refresh chat list
+        $this->dispatch('refresh')->to(Chats::class);
+    }
+}
+```
+
+## Unread Count
+
+Track unread messages per user:
+
+```php
+// Get unread count for a conversation
+$unreadCount = $conversation->getUnreadCountFor($user);
+
+// Get total unread across all conversations
+$totalUnread = $user->getUnreadCount();
+
+// Get unread messages
+$unreadMessages = $conversation->unreadMessages($user);
+```
+
+## Read Receipts
+
+Mark conversations as read:
+
+```php
+// Mark as read for current user
+$conversation->markAsRead($user);
+
+// Check if user has read the conversation
+if ($conversation->readBy($user)) {
+    // All messages have been read
+}
+```
+
+### Read Tracking
+
+Participants have a `conversation_read_at` timestamp:
+
+```php
+// src/Models/Conversation.php:519
+public function markAsRead(?Model $user = null)
+{
+    $user = $user ?? auth()->user();
+    
+    if ($user == null) {
+        return null;
+    }
+    
+    $this->participant($user)?->update([
+        'conversation_read_at' => now()
+    ]);
+}
+```
+
+## Broadcasting Configuration
+
+Configure broadcasting behavior:
+
+```php
+Panel::make('admin')
+    ->broadcasting()
+    ->broadcastingAuthRoute('custom/broadcasting/auth')  // Custom auth route
+```
+
+## Notification Preferences
+
+Implement user notification preferences:
+
+```php
+// In your User model
+public function shouldReceiveNotificationFor(Conversation $conversation): bool
+{
+    // Check user preferences
+    if ($this->notification_settings['mute_all'] ?? false) {
+        return false;
+    }
+    
+    // Check if conversation is muted
+    if ($this->mutedConversations()->where('id', $conversation->id)->exists()) {
+        return false;
+    }
+    
+    return true;
+}
+```
+
+## Error Handling
+
+WireChat gracefully handles broadcasting failures:
+
+```php
+try {
+    broadcast(new MessageCreated($message, $this->panel()->getId()))->toOthers();
+} catch (\Throwable $th) {
+    Log::error($th->getMessage());
+    // Message is still saved, notification just failed
+}
+```
+
+<Tip>
+If broadcasting fails, messages are still saved to the database. Users will see them when they refresh or load the conversation.
+</Tip>
+
+## Testing Notifications
+
+Test notification delivery:
+
+```php
+use Illuminate\Support\Facades\Notification;
+
+/** @test */
+public function it_notifies_participants_of_new_messages()
+{
+    Notification::fake();
+    
+    $sender = User::factory()->create();
+    $receiver = User::factory()->create();
+    
+    $conversation = $sender->createConversationWith($receiver);
+    $message = $sender->sendMessageTo($conversation, 'Hello!');
+    
+    Notification::assertSentTo(
+        $receiver,
+        NewMessageNotification::class
+    );
+}
+```
+
+## Debugging Notifications
+
+Enable Laravel Echo debugging:
+
+```javascript
+// resources/js/bootstrap.js
+import Echo from 'laravel-echo';
+import Pusher from 'pusher-js';
+
+window.Pusher = Pusher;
+
+window.Echo = new Echo({
+    broadcaster: 'pusher',
+    key: import.meta.env.VITE_PUSHER_APP_KEY,
+    cluster: import.meta.env.VITE_PUSHER_APP_CLUSTER,
+    forceTLS: true,
+    enabledTransports: ['ws', 'wss'],
+    
+    // Enable debugging
+    logToConsole: true,
+});
+```
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Queue Configuration" icon="layer-group">
+    Ensure your queue worker is running for reliable notification delivery
+  </Card>
+  <Card title="Broadcasting Driver" icon="tower-broadcast">
+    Use Laravel Reverb for easy setup or Pusher for production scale
+  </Card>
+  <Card title="Error Logging" icon="triangle-exclamation">
+    Monitor logs for broadcasting failures and adjust queue settings
+  </Card>
+  <Card title="User Preferences" icon="sliders">
+    Respect user mute and notification preference settings
+  </Card>
+</CardGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Broadcasting" icon="tower-broadcast" href="/configuration/broadcasting">
+    Configure Laravel broadcasting for your application
+  </Card>
+  <Card title="Private Chats" icon="messages" href="/features/private-chats">
+    Learn about read receipts in private conversations
+  </Card>
+  <Card title="Group Chats" icon="users" href="/features/group-chats">
+    Understand notification behavior in groups
+  </Card>
+  <Card title="Events" icon="calendar-days" href="/advanced/events">
+    Work with WireChat events and listeners
+  </Card>
+</CardGroup>

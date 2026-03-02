@@ -1,0 +1,225 @@
+---
+title: 'Private Chats'
+description: 'Create and manage one-on-one conversations between users'
+icon: 'messages'
+---
+
+Private chats enable direct one-on-one messaging between users in your application. WireChat automatically handles conversation creation, message routing, and participant management.
+
+## Creating Private Conversations
+
+Create a private conversation between two users using the `createConversationWith()` method:
+
+```php
+use App\Models\User;
+
+$currentUser = auth()->user();
+$otherUser = User::find(2);
+
+// Create or retrieve existing conversation
+$conversation = $currentUser->createConversationWith($otherUser);
+
+// Create with an initial message
+$conversation = $currentUser->createConversationWith(
+    $otherUser, 
+    'Hello! How are you?'
+);
+```
+
+<Note>
+WireChat automatically detects existing conversations between two users and returns the existing conversation instead of creating duplicates.
+</Note>
+
+## Self Conversations
+
+Users can create conversations with themselves for notes or reminders:
+
+```php
+// Create a self conversation
+$selfConversation = $currentUser->createConversationWith($currentUser);
+```
+
+The system automatically detects when both participants are the same user and creates a `SELF` conversation type instead of `PRIVATE`.
+
+## Sending Messages
+
+Send messages in private conversations using the `sendMessageTo()` method:
+
+```php
+// Send to a user (creates conversation if needed)
+$message = $currentUser->sendMessageTo($otherUser, 'Hi there!');
+
+// Send to an existing conversation
+$message = $currentUser->sendMessageTo($conversation, 'Another message');
+```
+
+## Conversation Detection
+
+Check if a conversation already exists between two users:
+
+```php
+if ($currentUser->hasConversationWith($otherUser)) {
+    // Conversation exists
+    $conversation = $currentUser->createConversationWith($otherUser);
+}
+```
+
+## Private Chat Features
+
+<CardGroup cols={2}>
+  <Card title="Automatic Deduplication" icon="filter">
+    WireChat prevents duplicate private conversations between the same two users
+  </Card>
+  <Card title="Read Receipts" icon="eye">
+    Track when messages are read with conversation-level read timestamps
+  </Card>
+  <Card title="Message Deletion" icon="trash">
+    Delete messages for yourself or for everyone in the conversation
+  </Card>
+  <Card title="Real-time Updates" icon="bolt">
+    Messages appear instantly using Laravel Echo and broadcasting
+  </Card>
+</CardGroup>
+
+## Reading Messages
+
+Mark conversations as read and track unread messages:
+
+```php
+// Mark conversation as read for current user
+$conversation->markAsRead($currentUser);
+
+// Check if conversation has been read
+if ($conversation->readBy($currentUser)) {
+    // User has read all messages
+}
+
+// Get unread messages
+$unreadMessages = $conversation->unreadMessages($currentUser);
+$unreadCount = $conversation->getUnreadCountFor($currentUser);
+```
+
+## Deleting Conversations
+
+<Steps>
+  <Step title="Delete for One User">
+    Remove the conversation from one user's view while keeping it for the other:
+    
+    ```php
+    $conversation->deleteFor($currentUser);
+    // or
+    $currentUser->deleteConversation($conversation);
+    ```
+  </Step>
+  
+  <Step title="Automatic Cleanup">
+    When both users in a private conversation delete it, WireChat automatically removes it from the database:
+    
+    ```php
+    // src/Models/Conversation.php:676-680
+    // If all participants have deleted the conversation, force delete it
+    if ($deletedByBothParticipants) {
+        return $this->forceDelete();
+    }
+    ```
+  </Step>
+</Steps>
+
+## Clearing Conversation History
+
+Clear message history without deleting the conversation:
+
+```php
+// Clear all messages for current user
+$conversation->clearFor($currentUser);
+// or
+$currentUser->clearConversation($conversation);
+
+// Messages are hidden but can reappear if new messages arrive
+```
+
+## Participant Management
+
+Access participant information in private chats:
+
+```php
+// Get the other participant in a private chat
+$peerParticipant = $conversation->peerParticipant($currentUser);
+$peerUser = $peerParticipant->participantable;
+
+// Get current user's participant record
+$authParticipant = $conversation->participant($currentUser);
+
+// Get both participants
+$allParticipants = $conversation->participants;
+```
+
+## Conversation Types
+
+WireChat distinguishes between private and self conversations:
+
+```php
+// Check conversation type
+if ($conversation->isPrivate()) {
+    // One-on-one conversation
+}
+
+if ($conversation->isSelf()) {
+    // Self conversation (notes)
+}
+
+if ($conversation->isGroup()) {
+    // Group conversation
+}
+```
+
+## Privacy & Permissions
+
+Verify user access before showing conversation content:
+
+```php
+// Check if user belongs to conversation
+if ($currentUser->belongsToConversation($conversation)) {
+    // User has access to this conversation
+}
+
+// This check is automatically performed in WireChat components
+// src/Livewire/Chat/Chat.php:796
+abort_unless($this->auth->belongsToConversation($this->conversation), 403);
+```
+
+<Tip>
+All WireChat Livewire components automatically verify that the authenticated user belongs to the conversation before displaying any data.
+</Tip>
+
+## Last Message & Activity
+
+Track conversation activity:
+
+```php
+// Get the last message
+$lastMessage = $conversation->lastMessage;
+
+// Get conversation update timestamp
+$lastActivity = $conversation->updated_at;
+
+// Update participant's last active timestamp
+$participant->update(['last_active_at' => now()]);
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Attachments" icon="paperclip" href="/features/attachments">
+    Learn how to send files and media in private chats
+  </Card>
+  <Card title="Notifications" icon="bell" href="/features/notifications">
+    Set up real-time notifications for new messages
+  </Card>
+  <Card title="Group Chats" icon="users" href="/features/group-chats">
+    Create multi-user group conversations
+  </Card>
+  <Card title="Search" icon="magnifying-glass" href="/features/search">
+    Implement chat and user search functionality
+  </Card>
+</CardGroup>

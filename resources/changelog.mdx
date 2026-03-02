@@ -1,0 +1,448 @@
+---
+title: Changelog
+description: Version history and release notes for WireChat
+---
+
+## About This Changelog
+
+All notable changes to WireChat are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+<Note>
+  WireChat is currently in **beta** (v0.3.x). Breaking changes may occur between minor versions until v1.0 is released.
+</Note>
+
+---
+
+## Unreleased
+
+### Added
+- Initial changelog setup
+- Placeholder for upcoming features
+
+---
+
+## [v0.3.0-beta4](https://github.com/namumakwembo/wirechat/releases/tag/v0.3.0-beta4) - 2025-11-12
+
+### Added
+- New `registerRoutes(bool|Closure $condition = true)` API on the Panel class for conditional route registration
+
+<Tip>
+  This allows you to control when panel routes are registered:
+  ```php
+  $panel->registerRoutes(fn () => auth()->check());
+  ```
+</Tip>
+
+---
+
+## [v0.3.0-beta3](https://github.com/namumakwembo/wirechat/releases/tag/v0.3.0-beta3) - 2025-11-09
+
+### Reverted
+- Reverted migrations that changed `actionable_id`, `attachable_id`, and `actor_id` to string in their respective tables
+
+### Removed
+- Excessive panel-related logging
+
+### Fixed
+- Typos in CSS classes
+
+---
+
+## [v0.3.0-beta2](https://github.com/namumakwembo/wirechat/releases/tag/v0.3.0-beta2) - 2025-09-30
+
+### Added
+- Command to publish a migration to update `actionable_id`, `attachable_id`, and `actor_id` to string in their respective tables
+
+<Note>
+  This migration was later reverted in beta3. Use the `wirechat:upgrade-morph-columns` command instead.
+</Note>
+
+---
+
+## [v0.3.0-beta1](https://github.com/namumakwembo/wirechat/releases/tag/v0.3.0-beta1) - 2025-09-29
+
+<Warning>
+  **Major Version** - This is a breaking change that requires migration from v0.2.x. See the [Migration Guide](/resources/migration-guide).
+</Warning>
+
+Transition from config-based to **Panel-based** settings for a cleaner, extensible way to define WireChat environments.
+
+### Added
+
+<Accordion title="Panel System">
+  - Introduced **Panels** as the new core system for managing chat environments (e.g., user, admin, support)
+  - New `ChatsPanelProvider` generator via `php artisan make:wirechat-panel`
+  - Panel-specific user search with `searchUsersUsing()`
+  - Support for panel-based notifications requiring panel IDs
+</Accordion>
+
+<Accordion title="Migration Commands">
+  - `wirechat:upgrade-namespace-to-v0.3x` - Migrate `Namu\WireChat` → `Wirechat\Wirechat`
+  - `wirechat:upgrade-to-v0.3x` - Migrate old `config/wirechat.php` to panel providers (planned)
+  - `wirechat:upgrade-morph-columns` - Ensure polymorphic relations work with both UUID and bigint IDs
+</Accordion>
+
+<Accordion title="User Interface">
+  - New `WireChatUser` interface for user models
+  - `InteractsWithWireChat` trait replaces `Chatable`
+  - TailwindCSS v4.0+ support
+</Accordion>
+
+### Changed
+
+<Accordion title="Configuration">
+  - Storage configuration moved from `attachments.*` keys to `storage.*` keys
+  - UUID configuration clarified with `uses_uuid_for_conversations` key (replaces `uuids`)
+  - Attachment URLs now resolve storage/visibility from the current panel
+</Accordion>
+
+<Accordion title="User Model API">
+  - Accessor methods renamed with `wirechat` prefix:
+    - `getAvatarUrlAttribute` → `getWirechatAvatarUrlAttribute`
+    - `getProfileUrlAttribute` → `getWirechatProfileUrlAttribute`
+    - `getDisplayNameAttribute` → `getWirechatDisplayNameAttribute`
+  - Migrated `searchChatables` logic from User model → panel-based search
+</Accordion>
+
+<Accordion title="Components">
+  - Improved avatar component with SVG fallback when image load fails
+  - Better error handling for missing images
+</Accordion>
+
+### Deprecated
+
+<Warning>
+  These features will be removed in v1.0:
+</Warning>
+
+- Old `namu/wirechat` package name
+- Legacy `attachments.*` config keys (use `storage.*`)
+- Old `uuids` config key (use `uses_uuid_for_conversations`)
+- Old `Chatable` trait name (use `InteractsWithWireChat`)
+- Legacy accessor methods without `wirechat` prefix
+
+### Fixed
+- Panel migration ensures existing `config/wirechat.php` customizations are preserved
+- Morph column upgrader ensures idempotent, safe migrations without breaking existing foreign keys
+
+---
+
+## [v0.2.10](https://github.com/namumakwembo/wirechat/releases/tag/v0.2.10) - 2025-05-22
+
+### Fixed
+- Fixed close button not working correctly when chat component is used as a widget
+
+---
+
+## [v0.2.9](https://github.com/namumakwembo/wirechat/releases/tag/v0.2.9) - 2025-05-15
+
+### Fixed
+- Added missing closing tag in chat-list component
+
+---
+
+## [v0.2.8](https://github.com/namumakwembo/wirechat/releases/tag/v0.2.8) - 2025-05-04
+
+### Added
+- `uuids` configuration option to toggle UUIDs for new installations
+
+### Fixed
+- Improved handling of storage URLs when saving attachments
+
+### Updated
+- Encrypted parameter keys for Blade method actions to enhance security
+
+---
+
+## [v0.2.7](https://github.com/namumakwembo/wirechat/releases/tag/v0.2.7) - 2025-04-25
+
+### Fixed
+- Changelog tag links missing prefix 'v'
+- Style in new-group button to use correct/updated CSS variable
+- Failing tests
+
+---
+
+## [v0.2.6](https://github.com/namumakwembo/wirechat/releases/tag/v0.2.6) - 2025-04-25
+
+### Added
+- New **Theme** documentation page
+- Support for defining CSS variables directly in a single `theme` configuration entry
+
+### Updated
+- Theme system now uses CSS variable-based theming approach
+- Improved file storage logic to better support S3 and disk visibility handling
+
+<Tip>
+  You can now customize all colors via CSS variables in your config:
+  ```php
+  'theme' => [
+      '--wirechat-primary' => '#3b82f6',
+      '--wirechat-dark-bg' => '#1f2937',
+  ],
+  ```
+</Tip>
+
+---
+
+## [v0.2.5](https://github.com/namumakwembo/wirechat/releases/tag/v0.2.5) - 2025-04-15
+
+### Added
+- `wirechat.attachments.disk_visibility` config option to determine if temporary URLs should be generated for private storage disks
+
+### Updated
+- Attachment upload now uses single file uploads to support S3 and similar disks that do not handle `temporary_uploaded_files` with multiple files
+
+### Fixed
+- PHPStan errors and improved code style with docblocks
+
+<Note>
+  This version adds full support for S3 and other cloud storage providers.
+</Note>
+
+---
+
+## [v0.2.4](https://github.com/namumakwembo/wirechat/releases/tag/v0.2.4) - 2025-03-30
+
+### Added
+- Support for Tailwind v4
+
+---
+
+## [v0.2.3](https://github.com/namumakwembo/wirechat/releases/tag/v0.2.3) - 2025-03-29
+
+### Added
+- Language file translation keys for labels
+- Built-in validation translation keys
+- Separate group info page for groups
+- Empty search results message for the new chat component
+- More tests for improved coverage
+
+### Fixed
+- Delete photo button incorrectly acting as a submit button while creating a group
+
+### Updated
+- Renamed `includes` folder to `partials` in chats and chat directories
+
+---
+
+## [v0.2.2](https://github.com/namumakwembo/wirechat/releases/tag/v0.2.2) - 2025-03-15
+
+### Updated
+- Storage URL to use `Storage::disk()->url()` instead of static URL from database
+
+---
+
+## [v0.2.1](https://github.com/namumakwembo/wirechat/releases/tag/v0.2.1) - 2025-03-15
+
+### Fixed
+- Storage disk to support dynamic storage
+
+### Added
+- Tests for multiple storage support
+
+---
+
+## [v0.2.0](https://github.com/namumakwembo/wirechat/releases/tag/v0.2.0) - 2025-03-06
+
+### Added
+- Support for Laravel 12
+
+---
+
+## [v0.1.11](https://github.com/namumakwembo/wirechat/releases/tag/v0.1.11) - 2025-03-04
+
+### Added
+- Introduced native notifications feature for new messages
+- New `notifications` configuration key:
+
+```php
+'notifications' => [
+    'enabled' => true,
+    'main_sw_script' => 'sw.js', // Relative to public folder
+],
+```
+
+- Added documentation about notifications
+
+<Tip>
+  Enable browser push notifications for real-time message alerts even when the app is closed.
+</Tip>
+
+---
+
+## [v0.1.0](https://github.com/namumakwembo/wirechat/releases/tag/v0.1.0) - 2025-02-16
+
+### Added
+
+<Accordion title="Configuration Options">
+  - `'guards' => ['web']` - Configure authentication guards
+  - `'layout' => 'wirechat::layouts.app'` - Customize layout
+  - Command for publishing views
+</Accordion>
+
+<Accordion title="Components">
+  - Standalone WireChat widget for embedding in any page
+</Accordion>
+
+<Accordion title="Documentation">
+  - Authorization guide
+  - Core Components documentation
+  - Layout customization guide
+  - Views publishing guide
+  - Contribution guide
+  - Extending WireChat Components guide
+</Accordion>
+
+<Accordion title="Middleware">
+  - `belongsToConversation` middleware added to `/chats` view route
+</Accordion>
+
+### Changed
+
+<Warning>
+  **Breaking Change** - Participant channel format updated
+</Warning>
+
+`NotifyParticipant` channel now uses an encoded type and ID to support mixed models in conversations.
+
+**Migration required:**
+
+```diff
++ userId = @js(auth()->id());
++ encodedType = @js(Namu\Wirechat\Helpers\MorphClassResolver::encode(auth()->user()->getMorphClass()));
+
+- Echo.private(`participant.${userId}`)
++ Echo.private(`participant.${encodedType}.${userId}`)
+      .listen('.Namu\\Wirechat\\Events\\NotifyParticipant', (e) => {
+         console.log(e);
+    });
+```
+
+<Warning>
+  **Folder Structure Reorganized**
+</Warning>
+
+Package folders restructured to group related components logically. If you've customized views, re-publish them and update file path references.
+
+### Fixed
+- Updated tests to fully support conversations with mixed models
+- Improved participant handling for different models
+
+### Updated
+- Optimized code and queries for faster conversation loading
+- Updated broadcasting to use the guards provided in WireChat config
+
+---
+
+## [v0.0.7](https://github.com/namumakwembo/wirechat/releases/tag/v0.0.7) - 2024-12-20
+
+### Added
+- Introduced `Actor` and `Actionable` traits for improved polymorphic relationship handling
+- Added tests for `Actor` and `Actionable` traits
+
+### Fixed
+- Resolved a bug that caused incorrect retrieval of authenticated participant due to missing `conversation_id` filter
+
+### Updated
+- Refactored migrations to use `unsignedBigInteger` for all polymorphic relationships by default
+- Maintains consistency across databases and resolves type mismatch issue found on PostgreSQL
+
+<Note>
+  Running `php artisan view:clear` may be required to ensure changes take effect.
+</Note>
+
+---
+
+## [v0.0.6](https://github.com/namumakwembo/wirechat/releases/tag/v0.0.6) - 2024-12-16
+
+### Fixed
+- Fixed error caused by missing import in chat blade due to typo
+
+<Note>
+  Running `php artisan view:clear` may be required.
+</Note>
+
+---
+
+## [v0.0.5](https://github.com/namumakwembo/wirechat/releases/tag/v0.0.5) - 2024-12-11
+
+### Fixed
+- Fixed unread messages dot not appearing correctly
+
+<Note>
+  Running `php artisan view:clear` may be required.
+</Note>
+
+---
+
+## [v0.0.4](https://github.com/namumakwembo/wirechat/releases/tag/v0.0.4) - 2024-12-08
+
+### Added
+- Issue template for bug reports
+- MIT license
+- CODEOWNERS file to assign reviewers automatically
+
+---
+
+## [v0.0.1](https://github.com/namumakwembo/wirechat/releases/tag/v0.0.1) - 2024-12-08
+
+<Note>
+  **Initial Release** - The first public release of WireChat
+</Note>
+
+### Added
+
+<Accordion title="Core Features">
+  - Basic chat functionality for private conversations
+  - Group chat functionality with admin roles
+  - Self conversations (notes to self)
+  - Real-time messaging with Laravel Echo
+</Accordion>
+
+<Accordion title="Smart Deletes">
+  - Delete conversations without affecting other participants
+  - Delete messages individually with per-user tracking
+  - Clear conversation history
+</Accordion>
+
+<Accordion title="Messages">
+  - Send and receive messages
+  - View message history
+  - Message timestamps and read status
+  - Unread message indicators
+</Accordion>
+
+<Accordion title="Database">
+  - Published initial migrations for:
+    - Conversations table
+    - Messages table
+    - Participants table
+    - Actions table (for tracking deletes)
+    - Attachments table
+</Accordion>
+
+---
+
+## Version Support
+
+<Note>
+  WireChat follows semantic versioning and supports the following Laravel versions:
+</Note>
+
+| WireChat Version | Laravel Version | PHP Version | Status |
+|-----------------|----------------|-------------|--------|
+| 0.3.x (beta) | 10.x - 12.x | 8.1 - 8.4 | Active |
+| 0.2.x | 10.x - 12.x | 8.1 - 8.4 | Maintenance |
+| 0.1.x | 10.x - 11.x | 8.1 - 8.3 | End of Life |
+| 0.0.x | 10.x - 11.x | 8.1 - 8.3 | End of Life |
+
+## Getting Updates
+
+<Tip>
+  Stay updated with the latest releases:
+  
+  - ⭐ [Star on GitHub](https://github.com/namumakwembo/wirechat)
+  - 📧 [Watch releases](https://github.com/namumakwembo/wirechat/releases)
+  - 🐦 [Follow on Twitter/X](https://x.com/namuio)
+</Tip>

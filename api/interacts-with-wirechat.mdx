@@ -1,0 +1,419 @@
+---
+title: 'InteractsWithWirechat Trait'
+description: 'Core trait providing chat functionality to User models'
+icon: 'comments'
+---
+
+## Overview
+
+The `InteractsWithWirechat` trait provides all essential chat functionality to your User model. It includes methods for creating conversations, sending messages, managing groups, and checking conversation membership.
+
+## Trait Location
+
+```php
+Wirechat\Wirechat\Traits\InteractsWithWirechat
+```
+
+## Usage
+
+Add the trait to your User model:
+
+```php
+use Wirechat\Wirechat\Traits\InteractsWithWirechat;
+
+class User extends Authenticatable implements WirechatUser
+{
+    use InteractsWithWirechat;
+}
+```
+
+## Relationships
+
+### conversations()
+
+Establishes a morphToMany relationship between the user and conversations.
+
+<ParamField path="return" type="MorphToMany" required>
+  Returns the conversations relationship
+</ParamField>
+
+```php
+$user = auth()->user();
+$conversations = $user->conversations;
+```
+
+## Conversation Management
+
+### createConversationWith()
+
+Creates or retrieves a private conversation with another user.
+
+<ParamField path="peer" type="Model" required>
+  The user to create a conversation with
+</ParamField>
+
+<ParamField path="message" type="string|null">
+  Optional initial message to send
+</ParamField>
+
+<ParamField path="return" type="Conversation|null" required>
+  Returns the conversation instance
+</ParamField>
+
+```php
+$user = auth()->user();
+$peer = User::find(2);
+
+// Create conversation without message
+$conversation = $user->createConversationWith($peer);
+
+// Create conversation with initial message
+$conversation = $user->createConversationWith($peer, 'Hello!');
+```
+
+<Note>
+If a conversation already exists between the two users, the existing conversation is returned instead of creating a duplicate.
+</Note>
+
+### createGroup()
+
+Creates a new group conversation.
+
+<ParamField path="name" type="string" required>
+  The group name
+</ParamField>
+
+<ParamField path="description" type="string|null">
+  Optional group description
+</ParamField>
+
+<ParamField path="photo" type="UploadedFile|null">
+  Optional group cover photo
+</ParamField>
+
+<ParamField path="panel" type="Panel|string|null">
+  The panel context
+</ParamField>
+
+<ParamField path="return" type="Conversation" required>
+  Returns the created group conversation
+</ParamField>
+
+```php
+$user = auth()->user();
+
+$group = $user->createGroup(
+    name: 'Development Team',
+    description: 'Team collaboration chat',
+    photo: $request->file('photo')
+);
+```
+
+<Warning>
+This method checks `canCreateGroups()` permission and aborts with 403 if unauthorized.
+</Warning>
+
+### exitConversation()
+
+Exits a group conversation by marking the user's participant record as exited.
+
+<ParamField path="conversation" type="Conversation" required>
+  The conversation to exit
+</ParamField>
+
+<ParamField path="return" type="bool" required>
+  Returns `true` if successfully exited, `false` otherwise
+</ParamField>
+
+```php
+$user = auth()->user();
+$conversation = Conversation::find(1);
+
+$user->exitConversation($conversation);
+```
+
+### deleteConversation()
+
+Deletes a conversation for the current user (soft delete).
+
+<ParamField path="conversation" type="Conversation" required>
+  The conversation to delete
+</ParamField>
+
+```php
+$user = auth()->user();
+$conversation = Conversation::find(1);
+
+$user->deleteConversation($conversation);
+```
+
+<Note>
+This performs a soft delete. The conversation remains accessible to other participants.
+</Note>
+
+### clearConversation()
+
+Clears all messages in a conversation for the current user.
+
+<ParamField path="conversation" type="Conversation" required>
+  The conversation to clear
+</ParamField>
+
+```php
+$user = auth()->user();
+$conversation = Conversation::find(1);
+
+$user->clearConversation($conversation);
+```
+
+## Messaging
+
+### sendMessageTo()
+
+Sends a message to a user or conversation.
+
+<ParamField path="model" type="Model" required>
+  The recipient user or Conversation instance
+</ParamField>
+
+<ParamField path="message" type="string" required>
+  The message content to send
+</ParamField>
+
+<ParamField path="return" type="Message|null" required>
+  Returns the created message
+</ParamField>
+
+```php
+$user = auth()->user();
+$recipient = User::find(2);
+
+// Send to a user (creates/finds conversation automatically)
+$message = $user->sendMessageTo($recipient, 'Hello there!');
+
+// Send to an existing conversation
+$conversation = Conversation::find(1);
+$message = $user->sendMessageTo($conversation, 'Group message');
+```
+
+<Note>
+When sending to a user model, a private conversation is automatically created if it doesn't exist.
+</Note>
+
+## Conversation Queries
+
+### belongsToConversation()
+
+Checks if the user is a participant in a conversation.
+
+<ParamField path="conversation" type="Conversation" required>
+  The conversation to check
+</ParamField>
+
+<ParamField path="withoutGlobalScopes" type="bool">
+  Whether to ignore global scopes (default: false)
+</ParamField>
+
+<ParamField path="return" type="bool" required>
+  Returns `true` if user is a participant
+</ParamField>
+
+```php
+$user = auth()->user();
+$conversation = Conversation::find(1);
+
+if ($user->belongsToConversation($conversation)) {
+    // User is a participant
+}
+```
+
+### hasConversationWith()
+
+Checks if the user has a private conversation with another user.
+
+<ParamField path="user" type="Model" required>
+  The other user to check
+</ParamField>
+
+<ParamField path="return" type="bool" required>
+  Returns `true` if a conversation exists
+</ParamField>
+
+```php
+$user = auth()->user();
+$otherUser = User::find(2);
+
+if ($user->hasConversationWith($otherUser)) {
+    // Conversation exists
+}
+```
+
+### hasDeletedConversation()
+
+Checks if the user has deleted a conversation.
+
+<ParamField path="conversation" type="Conversation" required>
+  The conversation to check
+</ParamField>
+
+<ParamField path="checkDeletionExpired" type="bool">
+  Check if deletion has expired (default: false)
+</ParamField>
+
+<ParamField path="return" type="bool" required>
+  Returns `true` if conversation is deleted
+</ParamField>
+
+```php
+$user = auth()->user();
+$conversation = Conversation::find(1);
+
+if ($user->hasDeletedConversation($conversation)) {
+    // User has deleted this conversation
+}
+
+// Check if deletion expired (conversation was updated after deletion)
+if ($user->hasDeletedConversation($conversation, checkDeletionExpired: true)) {
+    // Deletion has expired
+}
+```
+
+## Role Checks
+
+### isAdminIn()
+
+Checks if the user is an admin or owner in a conversation/group.
+
+<ParamField path="entity" type="Group|Conversation" required>
+  The group or conversation to check
+</ParamField>
+
+<ParamField path="return" type="bool" required>
+  Returns `true` if user is admin or owner
+</ParamField>
+
+```php
+$user = auth()->user();
+$conversation = Conversation::find(1);
+
+if ($user->isAdminIn($conversation)) {
+    // User has admin privileges
+}
+```
+
+### isOwnerOf()
+
+Checks if the user is the owner of a conversation/group.
+
+<ParamField path="entity" type="Group|Conversation" required>
+  The group or conversation to check
+</ParamField>
+
+<ParamField path="return" type="bool" required>
+  Returns `true` if user is the owner
+</ParamField>
+
+```php
+$user = auth()->user();
+$group = Group::find(1);
+
+if ($user->isOwnerOf($group)) {
+    // User owns this group
+}
+```
+
+## Accessors
+
+### wirechat_name
+
+Gets the display name for WireChat.
+
+```php
+$user = auth()->user();
+echo $user->wirechat_name; // Returns the user's display name
+```
+
+<Note>
+You can customize this by defining a `wirechat_name` attribute or method in your User model.
+</Note>
+
+### wirechat_avatar_url
+
+Gets the avatar URL for WireChat.
+
+```php
+$user = auth()->user();
+echo $user->wirechat_avatar_url; // Returns the user's avatar URL
+```
+
+### wirechat_profile_url
+
+Gets the profile URL for WireChat.
+
+```php
+$user = auth()->user();
+echo $user->wirechat_profile_url; // Returns the user's profile URL
+```
+
+## Unread Messages
+
+### getUnreadCount()
+
+Gets the unread message count for the user.
+
+<ParamField path="conversation" type="Conversation|null">
+  Optional specific conversation to check
+</ParamField>
+
+<ParamField path="return" type="int" required>
+  Returns the unread message count
+</ParamField>
+
+```php
+$user = auth()->user();
+
+// Get total unread count across all conversations
+$totalUnread = $user->getUnreadCount();
+
+// Get unread count for specific conversation
+$conversation = Conversation::find(1);
+$unread = $user->getUnreadCount($conversation);
+```
+
+## Complete Example
+
+```php
+use App\Models\User;
+use Wirechat\Wirechat\Models\Conversation;
+
+// Create a private conversation
+$user = auth()->user();
+$friend = User::find(2);
+$conversation = $user->createConversationWith($friend, 'Hey!');
+
+// Send a message
+$user->sendMessageTo($friend, 'How are you?');
+
+// Create a group
+$group = $user->createGroup(
+    name: 'Project Team',
+    description: 'Team collaboration'
+);
+
+// Check permissions
+if ($user->isOwnerOf($group)) {
+    // Perform owner-only actions
+}
+
+// Get unread count
+$unread = $user->getUnreadCount();
+
+// Delete conversation
+$user->deleteConversation($conversation);
+```
+
+## Related
+
+- [WirechatUser Contract](/api/wirechat-user) - Authorization interface
+- [Chat Component](/api/components/chat) - Chat UI component
+- [Chats Component](/api/components/chats) - Conversations list component

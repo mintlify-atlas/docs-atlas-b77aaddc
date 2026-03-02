@@ -1,0 +1,391 @@
+---
+title: Messages
+description: Understanding messages in WireChat - the individual chat communications
+---
+
+## Overview
+
+Messages are the individual communications within a conversation. They can be text-based or include attachments, and support features like replies, read receipts, and deletion.
+
+## Message Types
+
+WireChat supports two message types:
+
+```php
+use Wirechat\Wirechat\Enums\MessageType;
+
+enum MessageType: string
+{
+    case TEXT = 'text';
+    case ATTACHMENT = 'attachment';
+}
+```
+
+### Text Messages
+
+Standard text-based messages:
+
+```php
+$message = Message::create([
+    'body' => 'Hello, world!',
+    'type' => MessageType::TEXT,
+    'participant_id' => $participant->id,
+    'conversation_id' => $conversation->id,
+]);
+```
+
+### Attachment Messages
+
+Messages with file attachments:
+
+```php
+$message = Message::create([
+    'body' => 'Check out this file',
+    'type' => MessageType::ATTACHMENT,
+    'participant_id' => $participant->id,
+    'conversation_id' => $conversation->id,
+]);
+
+// Check if message has attachment
+if ($message->isAttachment()) {
+    $attachment = $message->attachment;
+}
+```
+
+## Database Structure
+
+Messages have the following key attributes:
+
+```php
+/**
+ * @property int $id
+ * @property int|null $conversation_id
+ * @property int $participant_id
+ * @property int|null $reply_id
+ * @property string|null $body
+ * @property MessageType $type
+ * @property \Illuminate\Support\Carbon|null $kept_at
+ * @property \Illuminate\Support\Carbon|null $deleted_at
+ * @property \Illuminate\Support\Carbon|null $created_at
+ * @property \Illuminate\Support\Carbon|null $updated_at
+ */
+```
+
+<Info>
+  Messages use soft deletes (`deleted_at`) to allow for recovery and maintain reply chains.
+</Info>
+
+## Relationships
+
+### Conversation
+
+Every message belongs to a conversation:
+
+```php
+$conversation = $message->conversation;
+```
+
+### Participant
+
+Messages are sent by participants:
+
+```php
+// Get the participant who sent the message
+$participant = $message->participant;
+
+// Get the actual user (through the participant)
+$user = $message->user;
+```
+
+<Note>
+  The `user` accessor provides direct access to the underlying user model via the participant relationship.
+</Note>
+
+### Attachment
+
+Messages can have one attachment:
+
+```php
+// Check if message has attachment
+if ($message->hasAttachment()) {
+    $attachment = $message->attachment;
+    echo $attachment->url;
+}
+```
+
+### Reply Chain
+
+Messages can be replies to other messages:
+
+```php
+// Create a reply
+$reply = Message::create([
+    'body' => 'This is a reply',
+    'participant_id' => $participant->id,
+    'conversation_id' => $conversation->id,
+    'reply_id' => $originalMessage->id,
+]);
+
+// Get the parent message
+$parent = $reply->parent;
+
+// Check if message has a parent
+if ($message->hasParent()) {
+    echo "This is a reply to: " . $message->parent->body;
+}
+
+// Check if message has replies
+if ($message->hasReply()) {
+    echo "This message has been replied to";
+}
+```
+
+## Creating Messages
+
+Create messages with all required attributes:
+
+```php
+use Wirechat\Wirechat\Models\Message;
+use Wirechat\Wirechat\Enums\MessageType;
+
+$message = Message::create([
+    'body' => 'Hello from WireChat!',
+    'type' => MessageType::TEXT,
+    'participant_id' => $participant->id,
+    'conversation_id' => $conversation->id,
+]);
+```
+
+## Ownership
+
+Check if a message belongs to a specific user:
+
+```php
+// Check ownership
+if ($message->ownedBy($user)) {
+    echo "This message belongs to the user";
+}
+
+// Check if belongs to authenticated user
+if ($message->belongsToAuth()) {
+    echo "This message belongs to the authenticated user";
+}
+```
+
+## Read Status
+
+Check if a message has been read:
+
+```php
+if ($message->readBy($user)) {
+    echo "Message has been read";
+}
+```
+
+<Info>
+  Read status is tracked at the conversation level via the participant's `conversation_read_at` timestamp.
+</Info>
+
+## Deleting Messages
+
+### Delete for User
+
+Delete a message for a specific user only:
+
+```php
+$message->deleteFor($user);
+```
+
+The `deleteFor()` method:
+- Creates a DELETE action tied to the user's participant
+- For private conversations, permanently deletes if both participants delete it
+- For self conversations, immediately force deletes
+
+```php
+public function deleteFor(Model|Authenticatable $user)
+{
+    $conversation = $this->conversation;
+    abort_unless($user->belongsToConversation($conversation), 403);
+
+    if ($conversation->isSelf()) {
+        return $this->forceDelete();
+    }
+
+    $actorParticipant = $conversation->participant($user);
+    abort_unless($actorParticipant != null, 403, 'You do not belong to this conversation');
+
+    $this->actions()->create([
+        'actor_id' => $actorParticipant->getKey(),
+        'actor_type' => $actorParticipant->getMorphClass(),
+        'type' => Actions::DELETE,
+    ]);
+
+    // Check if both participants deleted in private conversation
+    if ($conversation->isPrivate()) {
+        // ... deletion logic
+    }
+
+    return null;
+}
+```
+
+### Delete for Everyone
+
+Permanently delete a message for all participants:
+
+```php
+$message->deleteForEveryone($user);
+```
+
+<Warning>
+  Only the message owner or group admins can delete messages for everyone. Messages with replies are soft-deleted to maintain the reply chain.
+</Warning>
+
+## Emoji Detection
+
+Check if a message contains only emojis:
+
+```php
+if ($message->isEmoji()) {
+    // Render as large emoji
+    echo "<div class='emoji-only'>" . $message->body . "</div>";
+}
+```
+
+## Query Scopes
+
+### whereIsNotOwnedBy
+
+Find messages not owned by a specific user:
+
+```php
+$messages = Message::whereIsNotOwnedBy($user)->get();
+```
+
+This is useful for finding unread messages:
+
+```php
+$unreadMessages = $conversation->messages()
+    ->whereIsNotOwnedBy($user)
+    ->where('created_at', '>', $participant->conversation_read_at)
+    ->get();
+```
+
+## Kept Messages
+
+Messages can be marked as "kept" to prevent them from disappearing:
+
+```php
+$message->update(['kept_at' => now()]);
+
+if ($message->kept_at !== null) {
+    echo "This message is kept and won't disappear";
+}
+```
+
+<Info>
+  The `kept_at` timestamp is used with disappearing messages to exclude specific messages from auto-deletion.
+</Info>
+
+## Global Scopes
+
+Messages use the `WithoutRemovedMessages` global scope to automatically filter out messages deleted by the current user:
+
+```php
+protected static function booted()
+{
+    static::addGlobalScope(WithoutRemovedMessages::class);
+}
+```
+
+To include removed messages, remove the scope:
+
+```php
+$allMessages = Message::withoutGlobalScope(WithoutRemovedMessages::class)->get();
+```
+
+## Cascade Deletion
+
+When a message is deleted, its associated data is automatically cleaned up:
+
+```php
+static::deleted(function ($message) {
+    if ($message->attachment?->exists()) {
+        $message->attachment->delete();
+    }
+
+    DB::transaction(function () use ($message) {
+        $message->actions()->delete();
+    });
+});
+```
+
+## Sendable Deprecation
+
+<Warning>
+  The `sendable` relationship is deprecated. Use the `user` accessor instead:
+  
+  ```php
+  // ❌ Deprecated
+  $sender = $message->sendable;
+  
+  // ✅ Use this
+  $sender = $message->user;
+  ```
+</Warning>
+
+## Best Practices
+
+<Tip>
+  - Always set the correct `MessageType` when creating messages
+  - Use `deleteFor()` for user-specific deletion to preserve messages for others
+  - Check message ownership before allowing deletion or editing
+  - Use soft deletes to maintain reply chains
+  - Load attachments eagerly when querying multiple messages
+  - Check `isEmoji()` to apply special styling for emoji-only messages
+</Tip>
+
+## Common Patterns
+
+### Sending a Text Message
+
+```php
+$message = Message::create([
+    'body' => $request->message,
+    'type' => MessageType::TEXT,
+    'participant_id' => $conversation->participant($user)->id,
+    'conversation_id' => $conversation->id,
+]);
+```
+
+### Replying to a Message
+
+```php
+$reply = Message::create([
+    'body' => $request->reply,
+    'type' => MessageType::TEXT,
+    'participant_id' => $participant->id,
+    'conversation_id' => $conversation->id,
+    'reply_id' => $parentMessage->id,
+]);
+```
+
+### Getting Unread Messages
+
+```php
+$unreadCount = $conversation->messages()
+    ->whereIsNotOwnedBy(auth()->user())
+    ->where('created_at', '>', $participant->conversation_read_at ?? now())
+    ->count();
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Attachments" icon="paperclip" href="/concepts/attachments">
+    Learn about file attachments and uploads
+  </Card>
+  <Card title="Participants" icon="users" href="/concepts/participants">
+    Understand participant roles and permissions
+  </Card>
+</CardGroup>

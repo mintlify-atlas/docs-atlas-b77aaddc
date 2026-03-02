@@ -1,0 +1,403 @@
+---
+title: 'Broadcasting'
+description: 'Configure real-time messaging with Laravel broadcasting'
+icon: 'tower-broadcast'
+---
+
+## Overview
+
+WireChat uses Laravel's broadcasting system to deliver real-time updates. Messages are broadcasted over private channels specific to each conversation and participant.
+
+## Channel Configuration
+
+WireChat automatically registers broadcast channels for each panel. The channels are defined in `routes/channels.php`:
+
+```php routes/channels.php
+$panels = app(PanelRegistry::class)->all();
+
+foreach ($panels as $panel) {
+    $panelId = $panel->getId();
+    $guards = $panel->getGuards();
+    $middleware = $panel->getMiddleware();
+
+    // Conversation channel
+    Broadcast::channel(
+        "{$panelId}.conversation.{conversationId}",
+        function ($user, $conversationId) use ($guards) {
+            $conversation = Conversation::find($conversationId);
+            return $conversation && $user->belongsToConversation($conversation);
+        },
+        ['guards' => $guards, 'middleware' => $middleware]
+    );
+
+    // Participant channel
+    Broadcast::channel(
+        "{$panelId}.participant.{encodedType}.{id}",
+        function ($user, $encodedType, $id) use ($guards) {
+            $morphType = MorphClassResolver::decode($encodedType);
+            return $user->id == $id && $user->getMorphClass() == $morphType;
+        },
+        ['guards' => $guards, 'middleware' => $middleware]
+    );
+}
+```
+
+## Channel Types
+
+### Conversation Channel
+
+Used for broadcasting messages to all participants in a conversation:
+
+**Format:** `{panelId}.conversation.{conversationId}`
+
+**Example:** `app.conversation.123`
+
+**Authorization:** User must be a participant in the conversation
+
+```php
+public function belongsToConversation(Conversation $conversation): bool
+{
+    return $conversation->participants
+        ->where('participantable_id', $this->id)
+        ->where('participantable_type', $this->getMorphClass())
+        ->isNotEmpty();
+}
+```
+
+### Participant Channel
+
+Used for sending notifications to individual users:
+
+**Format:** `{panelId}.participant.{encodedType}.{id}`
+
+**Example:** `app.participant.App_Models_User.42`
+
+**Authorization:** User must match the participant type and ID
+
+<Note>
+  The participant type is encoded to handle namespaced class names in channel routes. WireChat uses `MorphClassResolver` for this encoding.
+</Note>
+
+## Panel Broadcasting Configuration
+
+Configure broadcasting behavior in your panel provider:
+
+```php app/Providers/WirechatPanelProvider.php
+use Wirechat\Wirechat\Panel;
+use Wirechat\Wirechat\PanelProvider;
+
+class WirechatPanelProvider extends PanelProvider
+{
+    public function panel(Panel $panel): Panel
+    {
+        return $panel
+            ->id('app')
+            ->broadcasting(true)  // Enable/disable broadcasting
+            ->messagesQueue('messages')  // Queue for message events
+            ->eventsQueue('default');    // Queue for other events
+    }
+}
+```
+
+### Broadcasting Methods
+
+<CodeGroup>
+
+```php Enable Broadcasting
+$panel->broadcasting(true)
+```
+
+```php Disable Broadcasting
+$panel->broadcasting(false)
+```
+
+```php Conditional Broadcasting
+$panel->broadcasting(fn () => config('app.env') === 'production')
+```
+
+</CodeGroup>
+
+## Queue Configuration
+
+WireChat uses separate queues for different event types:
+
+### Messages Queue
+
+Handles `MessageCreated` events that are queued:
+
+```php
+public function messagesQueue(string $queue): static
+{
+    $this->messagesQueue = $queue;
+    return $this;
+}
+```
+
+### Events Queue
+
+Handles group notifications and other non-urgent events:
+
+```php
+public function eventsQueue(string $queue): static
+{
+    $this->eventsQueue = $queue;
+    return $this;
+}
+```
+
+<Tip>
+  Use dedicated queues for messages to ensure real-time delivery even when other queues are busy.
+</Tip>
+
+## Broadcasting Drivers
+
+### Pusher (Recommended)
+
+Install Pusher PHP SDK:
+
+```bash
+composer require pusher/pusher-php-server
+```
+
+Configure in `.env`:
+
+```bash .env
+BROADCAST_DRIVER=pusher
+PUSHER_APP_ID=your-app-id
+PUSHER_APP_KEY=your-app-key
+PUSHER_APP_SECRET=your-app-secret
+PUSHER_APP_CLUSTER=your-cluster
+```
+
+### Laravel Reverb (Self-Hosted)
+
+Install Laravel Reverb:
+
+```bash
+php artisan install:broadcasting
+```
+
+Configure in `.env`:
+
+```bash .env
+BROADCAST_DRIVER=reverb
+REVERB_APP_ID=your-app-id
+REVERB_APP_KEY=your-app-key
+REVERB_APP_SECRET=your-app-secret
+REVERB_HOST=127.0.0.1
+REVERB_PORT=8080
+REVERB_SCHEME=http
+```
+
+Start the Reverb server:
+
+```bash
+php artisan reverb:start
+```
+
+### Redis
+
+Configure Redis driver:
+
+```bash .env
+BROADCAST_DRIVER=redis
+REDIS_HOST=127.0.0.1
+REDIS_PORT=6379
+```
+
+<Warning>
+  Redis requires a WebSocket server like Laravel Echo Server or Socket.io to work with front-end applications.
+</Warning>
+
+## Frontend Integration
+
+WireChat uses Laravel Echo for client-side broadcasting:
+
+```javascript resources/js/bootstrap.js
+import Echo from 'laravel-echo';
+import Pusher from 'pusher-js';
+
+window.Pusher = Pusher;
+
+window.Echo = new Echo({
+    broadcaster: 'pusher',
+    key: import.meta.env.VITE_PUSHER_APP_KEY,
+    cluster: import.meta.env.VITE_PUSHER_APP_CLUSTER,
+    forceTLS: true
+});
+```
+
+## Multi-Guard Support
+
+WireChat supports multiple authentication guards per panel:
+
+```php app/Providers/WirechatPanelProvider.php
+return $panel
+    ->id('app')
+    ->authGuards(['web', 'admin']);
+```
+
+The broadcasting channels check each guard for authentication:
+
+```php routes/channels.php
+function ($user, $conversationId) use ($guards) {
+    if (!$user) {
+        // Fallback to checking each guard
+        foreach ($guards as $guard) {
+            if (Auth::guard($guard)->check()) {
+                $user = Auth::guard($guard)->user();
+                break;
+            }
+        }
+        if (!$user) return false;
+    }
+    
+    $conversation = Conversation::find($conversationId);
+    return $conversation && $user->belongsToConversation($conversation);
+}
+```
+
+## Debugging Broadcasting
+
+### Enable Broadcasting Logs
+
+```php config/logging.php
+'channels' => [
+    'broadcasting' => [
+        'driver' => 'single',
+        'path' => storage_path('logs/broadcasting.log'),
+        'level' => 'debug',
+    ],
+],
+```
+
+### Test Channel Authorization
+
+```bash
+php artisan tinker
+```
+
+```php
+$user = User::first();
+$conversation = $user->conversations->first();
+
+// Test authorization
+$authorized = $user->belongsToConversation($conversation);
+var_dump($authorized); // Should be true
+```
+
+### Monitor Queue Workers
+
+```bash
+php artisan queue:work --queue=messages,default --verbose
+```
+
+## Performance Optimization
+
+### Use ShouldBroadcastNow Selectively
+
+Only use `ShouldBroadcastNow` for critical, time-sensitive events:
+
+```php
+// MessageDeleted uses ShouldBroadcastNow for instant UI updates
+class MessageDeleted implements ShouldBroadcastNow
+{
+    // Broadcasts immediately without queuing
+}
+
+// MessageCreated uses ShouldBroadcast for better performance
+class MessageCreated implements ShouldBroadcast
+{
+    // Queued for processing
+}
+```
+
+### Eager Load Relationships
+
+```php
+use Wirechat\Wirechat\Events\NotifyParticipant;
+
+public function __construct(Participant|Model $participant, Message $message)
+{
+    $this->message->loadMissing([
+        'participant.participantable',
+        'participant.conversation.group',
+        'attachment',
+    ]);
+}
+```
+
+<Tip>
+  Eager loading prevents N+1 queries when broadcasting events to multiple listeners.
+</Tip>
+
+### Broadcast Conditions
+
+Prevent unnecessary broadcasts:
+
+```php
+public function broadcastWhen(): bool
+{
+    // Only broadcast recent messages
+    return Carbon::parse($this->message->created_at)
+        ->gt(Carbon::now()->subMinute());
+}
+```
+
+## Security Considerations
+
+### Private Channels Only
+
+WireChat uses only private channels, requiring authorization for each connection:
+
+```php
+// All channels are private
+return new PrivateChannel("$panelId.conversation.{$conversationId}");
+```
+
+### Middleware Protection
+
+Channels inherit panel middleware:
+
+```php
+Broadcast::channel(
+    "{$panelId}.conversation.{conversationId}",
+    $callback,
+    [
+        'guards' => $guards,
+        'middleware' => $middleware,  // Panel middleware applied
+    ]
+);
+```
+
+### Authorization Callbacks
+
+Ensure proper authorization in channel callbacks:
+
+```php
+Broadcast::channel('app.conversation.{conversationId}', function ($user, $conversationId) {
+    // Always verify user has access to the conversation
+    $conversation = Conversation::find($conversationId);
+    
+    if (!$conversation) {
+        return false;
+    }
+    
+    return $user->belongsToConversation($conversation);
+});
+```
+
+<Warning>
+  Never return `true` unconditionally in channel authorization callbacks. Always verify user permissions.
+</Warning>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Events" icon="bolt" href="/advanced/events">
+    Listen to WireChat events
+  </Card>
+  <Card title="Multiple Panels" icon="table-columns" href="/advanced/multiple-panels">
+    Configure multiple chat panels
+  </Card>
+</CardGroup>

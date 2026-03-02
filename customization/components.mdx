@@ -1,0 +1,406 @@
+---
+title: Components
+description: Extend and customize WireChat Livewire components
+---
+
+## Overview
+
+WireChat is built with Laravel Livewire components that you can extend and customize. This guide covers how to override components, use traits, and implement custom functionality.
+
+## Core Components
+
+WireChat includes several core Livewire components:
+
+- `Chat` - Individual conversation view
+- `Chats` - Conversation list
+- `Drawer` - Side drawer for chat info
+- `Modal` - Modal dialogs
+- `Widgets\Wirechat` - Embeddable widget
+
+## Extending Components
+
+### Creating a Custom Chat Component
+
+Extend the base Chat component to add custom functionality:
+
+```php app/Livewire/CustomChat.php
+namespace App\Livewire;
+
+use Wirechat\Wirechat\Livewire\Chat\Chat as BaseChat;
+
+class CustomChat extends BaseChat
+{
+    public function sendMessage()
+    {
+        // Add custom validation
+        $this->validate([
+            'body' => 'required|max:1000|profanity_filter',
+        ]);
+        
+        // Call parent method
+        parent::sendMessage();
+        
+        // Add custom logic after sending
+        $this->dispatch('message-sent-analytics', [
+            'conversation_id' => $this->conversation->id,
+        ]);
+    }
+}
+```
+
+### Creating a Custom Chats List Component
+
+```php app/Livewire/CustomChats.php
+namespace App\Livewire;
+
+use Wirechat\Wirechat\Livewire\Chats\Chats as BaseChats;
+
+class CustomChats extends BaseChats
+{
+    public $filterStatus = 'all';
+    
+    protected function loadConversations()
+    {
+        parent::loadConversations();
+        
+        // Add custom filtering
+        if ($this->filterStatus !== 'all') {
+            $this->conversations = $this->conversations->filter(function ($conversation) {
+                return $conversation->status === $this->filterStatus;
+            });
+        }
+    }
+}
+```
+
+## Component Traits
+
+### HasPanel Trait
+
+Provides access to the current panel configuration:
+
+```php
+use Wirechat\Wirechat\Livewire\Concerns\HasPanel;
+
+class CustomComponent extends Component
+{
+    use HasPanel;
+    
+    public function mount()
+    {
+        $colors = $this->panel()->getColors();
+        $hasEmojiPicker = $this->panel()->hasEmojiPicker();
+        $maxUploads = $this->panel()->getMaxUploads();
+    }
+}
+```
+
+### Widget Trait
+
+Enables component to function as an embeddable widget:
+
+```php
+use Wirechat\Wirechat\Livewire\Concerns\Widget;
+
+class CustomComponent extends Component
+{
+    use Widget;
+    
+    public function render()
+    {
+        // Check if running as widget
+        if ($this->isWidget()) {
+            return view('livewire.widget-view')
+                ->layout('layouts.minimal');
+        }
+        
+        return view('livewire.full-view');
+    }
+}
+```
+
+## Chat Component Features
+
+### Real-time Listeners
+
+The Chat component automatically listens for broadcast events:
+
+```php src/Livewire/Chat/Chat.php
+public function getListeners()
+{
+    $conversationId = $this->conversation?->id;
+    $panelId = $this->panel()->getId();
+    $channelName = "{$panelId}.conversation.{$conversationId}";
+    
+    return [
+        'refresh' => '$refresh',
+        "echo-private:{$channelName},.Wirechat\\Wirechat\\Events\\MessageCreated" 
+            => 'appendNewMessage',
+        "echo-private:{$channelName},.Wirechat\\Wirechat\\Events\\MessageDeleted" 
+            => 'removeDeletedMessage',
+    ];
+}
+```
+
+### Message Management Methods
+
+<Tabs>
+  <Tab title="Send Message">
+    ```php
+    public function sendMessage()
+    {
+        // Rate limiting
+        $this->rateLimit();
+        
+        // Validate body or attachments
+        $attachments = array_merge($this->media, $this->files);
+        
+        if (empty($attachments)) {
+            $this->validate(['body' => 'required|string']);
+        }
+        
+        // Create message
+        $message = Message::create([
+            'reply_id' => $this->replyMessage?->id,
+            'conversation_id' => $this->conversation->id,
+            'participant_id' => $this->authParticipant->getKey(),
+            'body' => $this->body,
+            'type' => MessageType::TEXT,
+        ]);
+        
+        // Broadcast and notify
+        $this->dispatchMessageCreatedEvent($message);
+    }
+    ```
+  </Tab>
+  <Tab title="Delete Message">
+    ```php
+    public function deleteForMe(string $id): void
+    {
+        $messageId = decrypt($id);
+        $message = Message::where('id', $messageId)->firstOrFail();
+        
+        // Verify authorization
+        abort_unless($this->auth->belongsToConversation($message->conversation), 403);
+        
+        // Remove from UI
+        $this->removeMessage($message);
+        
+        // Delete for user
+        $message->deleteFor($this->auth);
+    }
+    ```
+  </Tab>
+  <Tab title="Reply to Message">
+    ```php
+    public function setReply(string $id): void
+    {
+        $messageId = decrypt($id);
+        $message = Message::where('id', $messageId)->firstOrFail();
+        
+        // Verify authorization
+        abort_unless($this->auth->belongsToConversation($this->conversation), 403);
+        abort_unless($message->conversation_id == $this->conversation->id, 403);
+        
+        // Set reply
+        $this->replyMessage = $message;
+        
+        // Focus input
+        $this->dispatch('focus-input-field');
+    }
+    ```
+  </Tab>
+</Tabs>
+
+### File Upload Handling
+
+```php src/Livewire/Chat/Chat.php
+use Livewire\WithFileUploads;
+
+class Chat extends Component
+{
+    use WithFileUploads;
+    
+    public array $media = [];
+    public array $files = [];
+    
+    public function sendMessage()
+    {
+        $attachments = array_merge($this->media, $this->files);
+        
+        if (count($attachments) != 0) {
+            // Get panel configuration
+            $maxUploads = $this->panel()->getMaxUploads();
+            $fileMimes = implode(',', $this->panel()->getFileMimes());
+            $fileMaxUploadSize = $this->panel()->getFileMaxUploadSize();
+            
+            // Validate uploads
+            $this->validate([
+                'files' => "array|max:$maxUploads|nullable",
+                'files.*' => "max:$fileMaxUploadSize|mimes:$fileMimes",
+            ]);
+            
+            // Process attachments
+            foreach ($attachments as $attachment) {
+                $path = $attachment->store(
+                    Wirechat::storage()->attachmentsDirectory(),
+                    Wirechat::storage()->disk()
+                );
+                
+                // Create attachment record...
+            }
+        }
+    }
+}
+```
+
+## Chats Component Features
+
+### Pagination and Load More
+
+```php src/Livewire/Chats/Chats.php
+protected function loadConversations()
+{
+    $perPage = 10;
+    $offset = ($this->page - 1) * $perPage;
+    
+    $additionalConversations = $this->auth->conversations()
+        ->with(['lastMessage.participant.participantable'])
+        ->when(trim($this->search ?? '') != '', fn($query) => 
+            $this->applySearchConditions($query)
+        )
+        ->latest('updated_at')
+        ->skip($offset)
+        ->take($perPage)
+        ->get();
+    
+    $this->canLoadMore = $additionalConversations->count() === $perPage;
+    
+    $this->conversations = collect($this->conversations)
+        ->concat($additionalConversations)
+        ->unique('id')
+        ->sortByDesc('updated_at')
+        ->values();
+}
+```
+
+### Search Functionality
+
+```php src/Livewire/Chats/Chats.php
+protected function applySearchConditions($query)
+{
+    $searchableFields = $this->panel()->getSearchableAttributes();
+    
+    return $query->where(function ($query) use ($searchableFields) {
+        // Search in participants
+        $query->whereHas('participants', function ($subquery) use ($searchableFields) {
+            $subquery->whereHas('participantable', function ($query2) use ($searchableFields) {
+                foreach ($searchableFields as $field) {
+                    $query2->orWhere($field, 'LIKE', '%' . $this->search . '%');
+                }
+            });
+        });
+        
+        // Search in group names
+        $query->orWhereHas('group', function ($groupQuery) {
+            $groupQuery->where('name', 'LIKE', '%' . $this->search . '%');
+        });
+    });
+}
+```
+
+### Event Listeners
+
+```php src/Livewire/Chats/Chats.php
+public function getListeners()
+{
+    $user = $this->auth;
+    $panelId = $this->panel()->getId();
+    $channelName = "$panelId.participant.{$user->getMorphClass()}.{$user->getKey()}";
+    
+    return [
+        'refresh' => '$refresh',
+        'hardRefresh',
+        "echo-private:{$channelName},.Wirechat\\Wirechat\\Events\\NotifyParticipant" 
+            => 'refreshComponent',
+    ];
+}
+```
+
+## Creating Custom Views
+
+### Override Component Views
+
+Publish and customize component views:
+
+<Steps>
+  <Step title="Publish Views">
+    ```bash
+    php artisan vendor:publish --tag=wirechat-views
+    ```
+  </Step>
+  <Step title="Customize Views">
+    Edit published views in `resources/views/vendor/wirechat/`
+  </Step>
+  <Step title="Use Custom Component">
+    ```php
+    class CustomChat extends Chat
+    {
+        public function render()
+        {
+            return view('livewire.custom-chat');
+        }
+    }
+    ```
+  </Step>
+</Steps>
+
+### Partial Views
+
+WireChat uses partials for reusable UI elements:
+
+```blade resources/views/livewire/chat/chat.blade.php
+@include('wirechat::livewire.chat.partials.header', [
+    'conversation' => $conversation,
+    'receiver' => $receiver
+])
+
+@include('wirechat::livewire.chat.partials.body', [
+    'conversation' => $conversation,
+    'loadedMessages' => $loadedMessages
+])
+
+@include('wirechat::livewire.chat.partials.footer', [
+    'conversation' => $conversation,
+    'authParticipant' => $authParticipant
+])
+```
+
+## Computed Properties
+
+Use Livewire computed properties for efficient data access:
+
+```php
+use Livewire\Attributes\Computed;
+
+#[Computed(persist: true)]
+public function auth()
+{
+    return auth()->user();
+}
+```
+
+<Note>
+Computed properties with `persist: true` are cached for the component lifecycle, improving performance.
+</Note>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Middleware" icon="shield" href="/customization/middleware">
+    Add custom middleware and authorization
+  </Card>
+  <Card title="Actions" icon="bolt" href="/customization/actions">
+    Configure and extend chat actions
+  </Card>
+</CardGroup>

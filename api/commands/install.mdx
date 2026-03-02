@@ -1,0 +1,105 @@
+---
+title: 'wirechat:install'
+description: 'Install WireChat package and publish necessary files'
+---
+
+## Overview
+
+The `wirechat:install` command sets up WireChat in your Laravel application by publishing configuration files, migrations, and creating a default chat panel.
+
+## Command Signature
+
+```bash
+php artisan wirechat:install
+```
+
+## What It Does
+
+The installation command performs the following operations:
+
+<Steps>
+  <Step title="Publish Configuration">
+    Publishes the `wirechat.php` configuration file to your `config` directory. If the file already exists, you'll be prompted to confirm overwriting it.
+  </Step>
+  
+  <Step title="Create Storage Symlink">
+    Creates a symbolic link from `public/storage` to `storage/app/public` for file attachments.
+  </Step>
+  
+  <Step title="Publish Migrations">
+    Publishes database migration files for conversations, messages, participants, and other WireChat tables.
+  </Step>
+  
+  <Step title="Create Default Panel">
+    Automatically creates a default chat panel with the ID `chats` by calling `make:wirechat-panel`.
+  </Step>
+</Steps>
+
+## Interactive Prompts
+
+### Existing Configuration
+
+If a configuration file already exists at `config/wirechat.php`, you'll see:
+
+```bash
+Config file already exists. Do you want to overwrite it? (yes/no) [no]
+```
+
+<Warning>
+Overwriting the configuration file will replace all your custom settings. Back up your configuration before overwriting.
+</Warning>
+
+## Example Output
+
+```bash
+$ php artisan wirechat:install
+
+Installing Wirechat Package...
+Publishing configuration...
+[✓] Published configuration
+Creating storage symlink...
+[✓] Storage linked.
+Publishing migrations...
+[✓] Published migrations
+
+ What is the panel ID?: chats
+
+Wirechat panel [App\Providers\Wirechat\ChatsPanelProvider] created successfully.
+We've tried to add [app/Providers/Wirechat/ChatsPanelProvider.php] into your [bootstrap/providers.php] file.
+
+[✓] Wirechat Package installed successfully.
+```
+
+## Next Steps
+
+After installation:
+
+1. Run migrations to create database tables:
+   ```bash
+   php artisan migrate
+   ```
+
+2. Configure your panel provider in `app/Providers/Wirechat/ChatsPanelProvider.php`
+
+3. (Optional) Set up push notifications:
+   ```bash
+   php artisan wirechat:setup-notifications
+   ```
+
+## Files Published
+
+<ParamField path="config/wirechat.php" type="file">
+  Main configuration file for WireChat settings (legacy, panel-based configuration recommended)
+</ParamField>
+
+<ParamField path="database/migrations" type="directory">
+  Migration files for all WireChat database tables
+</ParamField>
+
+<ParamField path="app/Providers/Wirechat/ChatsPanelProvider.php" type="file">
+  Default panel provider for customizing chat functionality
+</ParamField>
+
+## Source Reference
+
+Command implementation: `~/workspace/source/src/Console/Commands/InstallWirechat.php:11`

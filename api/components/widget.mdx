@@ -1,0 +1,469 @@
+---
+title: 'Widget Component'
+description: 'Livewire modal widget for displaying chat conversations'
+icon: 'window-maximize'
+---
+
+## Overview
+
+The `Wirechat` widget component provides a modal-based chat interface that can be triggered from anywhere in your application. It manages the state of chat modals and handles opening/closing conversations in a widget format.
+
+## Component Location
+
+```php
+Wirechat\Wirechat\Livewire\Widgets\Wirechat
+```
+
+## Usage
+
+### Blade
+
+Add the widget to your layout:
+
+```blade
+<livewire:wirechat.widget />
+```
+
+### Opening a Chat Widget
+
+#### From Livewire Component
+
+```php
+$this->dispatch('openChatWidget', 
+    conversation: $conversationId,
+    arguments: [],
+    modalAttributes: []
+);
+```
+
+#### From Blade
+
+```blade
+<button wire:click="$dispatch('openChatWidget', { conversation: {{ $conversationId }} })">
+    Open Chat
+</button>
+```
+
+#### From JavaScript
+
+```javascript
+Livewire.dispatch('openChatWidget', { 
+    conversation: 123 
+});
+```
+
+## Properties
+
+<ParamField path="activeWirechatWidgetComponent" type="string|null">
+  The ID of the currently active widget component
+</ParamField>
+
+<ParamField path="selectedConversationId" type="mixed">
+  The ID of the selected conversation
+</ParamField>
+
+<ParamField path="widgetComponents" type="array">
+  Array of active widget components
+</ParamField>
+
+## Public Methods
+
+### openChatWidget()
+
+Opens a chat conversation in a modal widget.
+
+<ParamField path="conversation" type="mixed" required>
+  The conversation ID or instance
+</ParamField>
+
+<ParamField path="arguments" type="array">
+  Additional arguments to pass to the chat component (default: [])
+</ParamField>
+
+<ParamField path="modalAttributes" type="array">
+  Custom modal configuration attributes (default: [])
+</ParamField>
+
+```php
+public function openChatWidget($conversation, $arguments = [], $modalAttributes = []): void
+```
+
+**Example:**
+```php
+// Basic usage
+$this->dispatch('openChatWidget', conversation: 123);
+
+// With custom modal attributes
+$this->dispatch('openChatWidget', 
+    conversation: 123,
+    modalAttributes: [
+        'closeOnEscape' => false,
+        'destroyOnClose' => false,
+    ]
+);
+```
+
+### destroyChatWidget()
+
+Destroys a specific widget instance.
+
+<ParamField path="id" type="string" required>
+  The widget component ID
+</ParamField>
+
+```php
+public function destroyChatWidget($id): void
+```
+
+### resetState()
+
+Resets the widget to its initial state.
+
+```php
+public function resetState(): void
+```
+
+**Example:**
+```php
+$this->dispatch('reset-widget-state');
+```
+
+## Modal Attributes
+
+### Default Attributes
+
+```php
+public static function modalAttributes(): array
+{
+    return [
+        'closeOnEscape' => true,
+        'closeOnEscapeIsForceful' => false,
+        'dispatchCloseEvent' => true,
+        'destroyOnClose' => true,
+    ];
+}
+```
+
+### Available Attributes
+
+<ParamField path="closeOnEscape" type="bool">
+  Allow closing modal with ESC key (default: true)
+</ParamField>
+
+<ParamField path="closeOnEscapeIsForceful" type="bool">
+  Force close on ESC without confirmation (default: false)
+</ParamField>
+
+<ParamField path="dispatchCloseEvent" type="bool">
+  Dispatch event when modal closes (default: true)
+</ParamField>
+
+<ParamField path="destroyOnClose" type="bool">
+  Destroy component when modal closes (default: true)
+</ParamField>
+
+### Custom Modal Configuration
+
+```php
+$this->dispatch('openChatWidget', 
+    conversation: $conversationId,
+    modalAttributes: [
+        'closeOnEscape' => false,
+        'closeOnEscapeIsForceful' => false,
+        'dispatchCloseEvent' => true,
+        'destroyOnClose' => false,
+    ]
+);
+```
+
+## Event Listeners
+
+The widget listens for these events:
+
+### openChatWidget
+
+Opens a chat modal.
+
+```javascript
+Livewire.dispatch('openChatWidget', { conversation: 123 });
+```
+
+### destroyChatWidget
+
+Destroys a widget instance.
+
+```javascript
+Livewire.dispatch('destroyChatWidget', { id: 'widget-id' });
+```
+
+### closeChatWidget
+
+Closes the current widget.
+
+```javascript
+Livewire.dispatch('closeChatWidget');
+```
+
+### open-chat
+
+Alias for `openChatWidget`.
+
+```javascript
+Livewire.dispatch('open-chat', { conversation: 123 });
+```
+
+## Dispatched Events
+
+### activeChatWidgetComponentChanged
+
+Dispatched when the active widget changes.
+
+<ParamField path="id" type="string" required>
+  The new active widget component ID
+</ParamField>
+
+```javascript
+Livewire.on('activeChatWidgetComponentChanged', (event) => {
+    console.log('Active widget:', event.id);
+});
+```
+
+## Component Resolution
+
+The widget automatically resolves component properties:
+
+```php
+public function resolveComponentProps(array $attributes, Component $component): Collection
+{
+    return $this->getPublicPropertyTypes($component)
+        ->intersectByKeys($attributes)
+        ->map(function ($className, $propName) use ($attributes) {
+            return $this->resolveParameter($attributes, $propName, $className);
+        });
+}
+```
+
+This handles:
+- Model binding (e.g., Conversation models)
+- Enum resolution
+- URL routable instances
+
+## Complete Example
+
+### Layout Setup
+
+```blade
+<!-- resources/views/layouts/app.blade.php -->
+<!DOCTYPE html>
+<html>
+<head>
+    <title>My App</title>
+    @livewireStyles
+</head>
+<body>
+    {{ $slot }}
+    
+    <!-- Add widget to layout -->
+    <livewire:wirechat.widget />
+    
+    @livewireScripts
+</body>
+</html>
+```
+
+### Trigger from Blade
+
+```blade
+<!-- resources/views/users/show.blade.php -->
+<div class="user-profile">
+    <h1>{{ $user->name }}</h1>
+    
+    <!-- Open chat with user -->
+    <button 
+        wire:click="$dispatch('openChatWidget', { conversation: {{ $conversation->id }} })">
+        Send Message
+    </button>
+</div>
+```
+
+### Trigger from Livewire Component
+
+```php
+namespace App\Livewire;
+
+use Livewire\Component;
+use App\Models\User;
+
+class UserProfile extends Component
+{
+    public User $user;
+    
+    public function startChat()
+    {
+        // Create or get conversation
+        $conversation = auth()->user()
+            ->createConversationWith($this->user);
+        
+        // Open widget
+        $this->dispatch('openChatWidget', 
+            conversation: $conversation->id
+        );
+    }
+    
+    public function render()
+    {
+        return view('livewire.user-profile');
+    }
+}
+```
+
+### Multiple Widgets
+
+```blade
+<!-- Open different conversations -->
+<div class="contacts-list">
+    @foreach($contacts as $contact)
+        <div class="contact">
+            <span>{{ $contact->name }}</span>
+            <button 
+                wire:click="$dispatch('openChatWidget', { 
+                    conversation: {{ $contact->conversation_id }} 
+                })">
+                Chat
+            </button>
+        </div>
+    @endforeach
+</div>
+```
+
+### With Custom Modal Behavior
+
+```php
+public function openPersistentChat()
+{
+    $this->dispatch('openChatWidget',
+        conversation: $this->conversationId,
+        modalAttributes: [
+            'closeOnEscape' => false,          // Can't close with ESC
+            'closeOnEscapeIsForceful' => false,
+            'dispatchCloseEvent' => true,
+            'destroyOnClose' => false,         // Keep state when closed
+        ]
+    );
+}
+```
+
+### JavaScript Integration
+
+```javascript
+// Open chat from vanilla JavaScript
+document.querySelector('#chat-button').addEventListener('click', () => {
+    Livewire.dispatch('openChatWidget', { conversation: 123 });
+});
+
+// Listen for widget state changes
+Livewire.on('activeChatWidgetComponentChanged', (event) => {
+    console.log('Chat widget opened:', event.id);
+    
+    // Update UI or analytics
+    trackEvent('chat_opened', { conversation_id: event.id });
+});
+
+// Close widget programmatically
+function closeChat() {
+    Livewire.dispatch('closeChatWidget');
+}
+```
+
+### Alpine.js Integration
+
+```blade
+<div x-data="{ chatOpen: false }">
+    <button 
+        @click="
+            chatOpen = true;
+            $dispatch('openChatWidget', { conversation: {{ $conversationId }} })
+        ">
+        Open Chat
+    </button>
+    
+    <!-- Listen for chat close -->
+    <div 
+        @close-chat.window="chatOpen = false"
+        x-show="chatOpen">
+        Chat is open
+    </div>
+</div>
+```
+
+## Widget State Management
+
+The widget automatically manages state:
+
+```php
+protected function widgetComponents
+[
+    'abc123' => [
+        'name' => 'wirechat.chat',
+        'conversation' => 123,
+        'modalAttributes' => [...],
+    ],
+]
+```
+
+Each widget instance gets a unique ID based on:
+- Component name
+- Conversation ID
+- Arguments hash
+
+```php
+$id = md5($component . $conversation . serialize($arguments));
+```
+
+## Best Practices
+
+<Check>Always include the widget component in your main layout</Check>
+<Check>Use conversation IDs rather than full models for better performance</Check>
+<Check>Set `destroyOnClose: false` only when you need to preserve state</Check>
+<Check>Handle widget open events for analytics or UI updates</Check>
+
+<Warning>
+The widget requires user authentication. Ensure users are logged in before dispatching open events.
+</Warning>
+
+## Troubleshooting
+
+### Widget Not Opening
+
+<Steps>
+  <Step title="Verify Widget is in Layout">
+    Ensure `<livewire:wirechat.widget />` is present in your layout
+  </Step>
+  <Step title="Check User Authentication">
+    User must be authenticated to open widget
+  </Step>
+  <Step title="Verify Conversation Exists">
+    The conversation ID must exist in the database
+  </Step>
+  <Step title="Check JavaScript Console">
+    Look for Livewire errors in browser console
+  </Step>
+</Steps>
+
+### Multiple Widgets Conflict
+
+By design, only one widget is active at a time. Opening a new widget replaces the current one.
+
+### Widget State Lost
+
+Set `destroyOnClose: false` in modal attributes to preserve state:
+
+```php
+modalAttributes: ['destroyOnClose' => false]
+```
+
+## Related
+
+- [Chat Component](/api/components/chat) - The component rendered inside the widget
+- [Chats Component](/api/components/chats) - Conversations list
+- [Configuration](/configuration/overview) - Panel configuration options

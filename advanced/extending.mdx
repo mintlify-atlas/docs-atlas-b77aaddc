@@ -1,0 +1,685 @@
+---
+title: 'Extending WireChat'
+description: 'Extend and customize WireChat functionality'
+icon: 'puzzle-piece'
+---
+
+## Overview
+
+WireChat is built with extensibility in mind. You can extend models, add custom traits, override Livewire components, and modify panel behavior to fit your application's needs.
+
+## Extending Models
+
+### Using InteractsWithWirechat Trait
+
+Add the `InteractsWithWirechat` trait to your User model:
+
+```php app/Models/User.php
+namespace App\Models;
+
+use Illuminate\Foundation\Auth\User as Authenticatable;
+use Wirechat\Wirechat\Traits\InteractsWithWirechat;
+
+class User extends Authenticatable
+{
+    use InteractsWithWirechat;
+    
+    // Customize WireChat attributes
+    protected $appends = [
+        'wirechat_name',
+        'wirechat_avatar_url',
+        'wirechat_profile_url',
+    ];
+    
+    public function getWirechatNameAttribute(): string
+    {
+        return $this->full_name ?? $this->name;
+    }
+    
+    public function getWirechatAvatarUrlAttribute(): ?string
+    {
+        return $this->avatar_url ?? "https://ui-avatars.com/api/?name={$this->name}";
+    }
+    
+    public function getWirechatProfileUrlAttribute(): ?string
+    {
+        return route('profile.show', $this);
+    }
+}
+```
+
+<Note>
+  The `InteractsWithWirechat` trait provides all essential methods for conversations, messages, and participant management.
+</Note>
+
+## Available Traits
+
+### InteractsWithWirechat
+
+The main trait providing chat functionality:
+
+```php src/Traits/InteractsWithWirechat.php
+trait InteractsWithWirechat
+{
+    // Relationships
+    public function conversations();
+    
+    // Conversation management
+    public function createConversationWith(Model $peer, ?string $message = null);
+    public function createGroup(string $name, ?string $description = null);
+    public function exitConversation(Conversation $conversation);
+    public function deleteConversation(Conversation $conversation);
+    public function clearConversation(Conversation $conversation);
+    
+    // Messaging
+    public function sendMessageTo(Model $model, string $message);
+    
+    // Utilities
+    public function belongsToConversation(Conversation $conversation);
+    public function hasConversationWith(Model $user);
+    public function getUnreadCount(?Conversation $conversation = null);
+    
+    // Roles
+    public function isAdminIn(Group|Conversation $entity);
+    public function isOwnerOf(Group|Conversation $entity);
+}
+```
+
+### Actionable
+
+Track actions performed on models:
+
+```php src/Traits/Actionable.php
+trait Actionable
+{
+    public function actions(): MorphMany
+    {
+        return $this->morphMany(Action::class, 'actionable');
+    }
+}
+```
+
+**Usage:**
+
+```php
+use Wirechat\Wirechat\Traits\Actionable;
+
+class Message extends Model
+{
+    use Actionable;
+}
+
+// Track actions on messages
+$message->actions()->create([
+    'actor_type' => User::class,
+    'actor_id' => $user->id,
+    'action' => 'edited',
+    'metadata' => ['old_body' => $oldBody],
+]);
+```
+
+### Actor
+
+Track actions performed by models:
+
+```php src/Traits/Actor.php
+trait Actor
+{
+    public function performedActions()
+    {
+        return $this->morphMany(Action::class, 'actor');
+    }
+}
+```
+
+**Usage:**
+
+```php
+use Wirechat\Wirechat\Traits\Actor;
+
+class User extends Model
+{
+    use Actor;
+}
+
+// Get all actions performed by user
+$user->performedActions()->get();
+```
+
+## Custom Panel Configuration
+
+### Creating a Custom Panel
+
+Extend the base `Panel` class:
+
+```php app/Panels/CustomPanel.php
+namespace App\Panels;
+
+use Wirechat\Wirechat\Panel as BasePanel;
+use Closure;
+
+class CustomPanel extends BasePanel
+{
+    protected bool|Closure $enableAIModeration = false;
+    protected array $customFeatures = [];
+    
+    public function aiModeration(bool|Closure $condition = true): static
+    {
+        $this->enableAIModeration = $condition;
+        return $this;
+    }
+    
+    public function hasAIModeration(): bool
+    {
+        return (bool) $this->evaluate($this->enableAIModeration);
+    }
+    
+    public function features(array $features): static
+    {
+        $this->customFeatures = $features;
+        return $this;
+    }
+    
+    public function getFeatures(): array
+    {
+        return $this->customFeatures;
+    }
+}
+```
+
+### Using Custom Panel
+
+```php app/Providers/CustomPanelProvider.php
+namespace App\Providers;
+
+use Wirechat\Wirechat\PanelProvider;
+use App\Panels\CustomPanel;
+
+class CustomPanelProvider extends PanelProvider
+{
+    public function panel(CustomPanel $panel): CustomPanel
+    {
+        return $panel
+            ->id('custom')
+            ->default()
+            ->aiModeration(true)
+            ->features([
+                'voice-messages' => true,
+                'video-calls' => true,
+                'screen-share' => false,
+            ]);
+    }
+}
+```
+
+<Tip>
+  Use the `EvaluatesClosures` trait (included in `Panel`) to support both static values and closures in your custom methods.
+</Tip>
+
+## Panel Concerns Pattern
+
+WireChat uses the "Concerns" pattern to organize panel functionality. You can create custom concerns:
+
+```php app/Panels/Concerns/HasVoiceMessages.php
+namespace App\Panels\Concerns;
+
+use Closure;
+
+trait HasVoiceMessages
+{
+    protected bool|Closure $allowVoiceMessages = true;
+    protected int|Closure $maxVoiceDuration = 300; // seconds
+    
+    public function voiceMessages(bool|Closure $condition = true): static
+    {
+        $this->allowVoiceMessages = $condition;
+        return $this;
+    }
+    
+    public function hasVoiceMessages(): bool
+    {
+        return (bool) $this->evaluate($this->allowVoiceMessages);
+    }
+    
+    public function maxVoiceDuration(int|Closure $seconds): static
+    {
+        $this->maxVoiceDuration = $seconds;
+        return $this;
+    }
+    
+    public function getMaxVoiceDuration(): int
+    {
+        return (int) $this->evaluate($this->maxVoiceDuration);
+    }
+}
+```
+
+**Use in Panel:**
+
+```php
+use App\Panels\Concerns\HasVoiceMessages;
+
+class CustomPanel extends Panel
+{
+    use HasVoiceMessages;
+}
+```
+
+## Extending Livewire Components
+
+### Override Component Views
+
+Publish WireChat views:
+
+```bash
+php artisan vendor:publish --tag=wirechat-views
+```
+
+Modify views in `resources/views/vendor/wirechat/`:
+
+```blade resources/views/vendor/wirechat/livewire/chat/chat.blade.php
+<div class="custom-chat-container">
+    {{-- Your custom layout --}}
+    <x-wirechat::custom-header :conversation="$conversation" />
+    
+    {{-- Original content --}}
+    @include('wirechat::components.messages')
+    
+    <x-wirechat::custom-footer />
+</div>
+```
+
+### Extend Livewire Components
+
+Create a custom component extending WireChat's:
+
+```php app/Livewire/CustomChat.php
+namespace App\Livewire;
+
+use Wirechat\Wirechat\Livewire\Chat\Chat as BaseChat;
+
+class CustomChat extends BaseChat
+{
+    public bool $enableMarkdown = true;
+    
+    public function sendMessage()
+    {
+        // Custom pre-processing
+        if ($this->enableMarkdown) {
+            $this->body = $this->parseMarkdown($this->body);
+        }
+        
+        // Call parent method
+        parent::sendMessage();
+        
+        // Custom post-processing
+        $this->dispatch('message-sent');
+    }
+    
+    protected function parseMarkdown(string $text): string
+    {
+        // Your markdown parsing logic
+        return $text;
+    }
+}
+```
+
+## Custom Middleware
+
+### Panel Middleware
+
+Add custom middleware to panels:
+
+```php app/Http/Middleware/TrackChatActivity.php
+namespace App\Http\Middleware;
+
+use Closure;
+use Illuminate\Support\Facades\Cache;
+
+class TrackChatActivity
+{
+    public function handle($request, Closure $next)
+    {
+        $user = $request->user();
+        
+        if ($user) {
+            Cache::put(
+                "chat:active:{$user->id}",
+                now(),
+                now()->addMinutes(5)
+            );
+        }
+        
+        return $next($request);
+    }
+}
+```
+
+**Apply to Panel:**
+
+```php
+return $panel
+    ->id('app')
+    ->middleware([
+        'auth',
+        \App\Http\Middleware\TrackChatActivity::class,
+    ]);
+```
+
+### Chat-Specific Middleware
+
+Add middleware for conversation routes:
+
+```php app/Http/Middleware/VerifyConversationAccess.php
+namespace App\Http\Middleware;
+
+use Closure;
+use Wirechat\Wirechat\Models\Conversation;
+
+class VerifyConversationAccess
+{
+    public function handle($request, Closure $next)
+    {
+        $conversationId = $request->route('conversation');
+        $user = $request->user();
+        
+        if (!$user->belongsToConversation(
+            Conversation::find($conversationId)
+        )) {
+            abort(403);
+        }
+        
+        return $next($request);
+    }
+}
+```
+
+**Apply to Chat Routes:**
+
+```php
+return $panel
+    ->id('app')
+    ->chatMiddleware([
+        \App\Http\Middleware\VerifyConversationAccess::class,
+    ]);
+```
+
+<Warning>
+  Chat middleware always includes `belongsToConversation` as the first middleware. Your custom middleware will be appended.
+</Warning>
+
+## Custom Events
+
+Create custom events following WireChat's pattern:
+
+```php app/Events/MessageReaction.php
+namespace App\Events;
+
+use Illuminate\Broadcasting\PrivateChannel;
+use Illuminate\Contracts\Broadcasting\ShouldBroadcastNow;
+use Wirechat\Wirechat\Models\Message;
+use Wirechat\Wirechat\Traits\InteractsWithPanel;
+
+class MessageReaction implements ShouldBroadcastNow
+{
+    use InteractsWithPanel;
+    
+    public function __construct(
+        public Message $message,
+        public string $reaction,
+        public $user,
+        ?string $panel = null
+    ) {
+        $this->resolvePanel($panel);
+    }
+    
+    public function broadcastOn(): array
+    {
+        $panelId = $this->getPanel()->getId();
+        return [
+            new PrivateChannel(
+                "$panelId.conversation.{$this->message->conversation_id}"
+            ),
+        ];
+    }
+    
+    public function broadcastWith(): array
+    {
+        return [
+            'message_id' => $this->message->id,
+            'reaction' => $this->reaction,
+            'user_id' => $this->user->id,
+        ];
+    }
+}
+```
+
+## Database Customization
+
+### Custom Table Prefix
+
+Set a custom prefix in `config/wirechat.php`:
+
+```php config/wirechat.php
+return [
+    'table_prefix' => 'chat_',
+];
+```
+
+<Note>
+  Table prefix is only used during initial migrations and cannot be changed after installation.
+</Note>
+
+### UUID Primary Keys
+
+Enable UUID for conversations:
+
+```php config/wirechat.php
+return [
+    'uses_uuid_for_conversations' => true,
+];
+```
+
+### Extend Models
+
+Create custom models extending WireChat's:
+
+```php app/Models/CustomConversation.php
+namespace App\Models;
+
+use Wirechat\Wirechat\Models\Conversation as BaseConversation;
+
+class CustomConversation extends BaseConversation
+{
+    protected $appends = ['participant_count'];
+    
+    public function getParticipantCountAttribute(): int
+    {
+        return $this->participants()->count();
+    }
+    
+    public function archive(): void
+    {
+        $this->update(['archived_at' => now()]);
+    }
+    
+    public function scopeActive($query)
+    {
+        return $query->whereNull('archived_at');
+    }
+}
+```
+
+## Storage Customization
+
+Configure custom storage for attachments:
+
+```php config/wirechat.php
+return [
+    'storage' => [
+        'disk' => 's3',
+        'visibility' => 'private',
+        'directories' => [
+            'attachments' => 'chat/attachments',
+        ],
+    ],
+];
+```
+
+Access storage configuration:
+
+```php
+use Wirechat\Wirechat\Facades\Wirechat;
+
+$disk = Wirechat::storage()->disk();
+$directory = Wirechat::storage()->attachmentsDirectory();
+$visibility = Wirechat::storage()->visibility();
+```
+
+## Advanced Panel Methods
+
+<Accordion title="Custom Authorization">
+
+```php
+use Wirechat\Wirechat\Panel\Concerns\HasAuth;
+
+trait HasAuth
+{
+    protected bool|Closure $canCreateChats = true;
+    protected bool|Closure $canCreateGroups = true;
+    
+    public function authorizeChats(bool|Closure $condition): static
+    {
+        $this->canCreateChats = $condition;
+        return $this;
+    }
+    
+    public function authorizeGroups(bool|Closure $condition): static
+    {
+        $this->canCreateGroups = $condition;
+        return $this;
+    }
+}
+
+// Usage
+return $panel
+    ->authorizeChats(fn() => auth()->user()->isPremium())
+    ->authorizeGroups(fn() => auth()->user()->can('create-groups'));
+```
+
+</Accordion>
+
+<Accordion title="Dynamic Routes">
+
+```php
+use Wirechat\Wirechat\Panel\Concerns\HasRoutes;
+
+trait HasRoutes
+{
+    protected string|Closure $path = 'chat';
+    
+    public function path(string|Closure $path): static
+    {
+        $this->path = $path;
+        return $this;
+    }
+    
+    public function getPath(): string
+    {
+        return $this->evaluate($this->path);
+    }
+    
+    public function chatRoute($conversationId): string
+    {
+        return url($this->getPath() . '/' . $conversationId);
+    }
+}
+```
+
+</Accordion>
+
+<Accordion title="Feature Toggles">
+
+```php
+public function panel(Panel $panel): Panel
+{
+    return $panel
+        ->id('app')
+        ->groups(fn() => config('features.chat.groups'))
+        ->attachments(fn() => config('features.chat.attachments'))
+        ->emojiPicker(fn() => config('features.chat.emojis'));
+}
+```
+
+</Accordion>
+
+## Helper Methods
+
+### Create Conversations Programmatically
+
+```php
+use App\Models\User;
+
+$user = User::find(1);
+$recipient = User::find(2);
+
+// Create private conversation
+$conversation = $user->createConversationWith(
+    $recipient,
+    message: 'Hello!'
+);
+
+// Create group
+$group = $user->createGroup(
+    name: 'Team Discussion',
+    description: 'Weekly team sync'
+);
+```
+
+### Send Messages
+
+```php
+$user->sendMessageTo($recipient, 'Hello!');
+
+$user->sendMessageTo($conversation, 'Group message');
+```
+
+### Check Permissions
+
+```php
+$isOwner = $user->isOwnerOf($conversation);
+$isAdmin = $user->isAdminIn($conversation);
+$isMember = $user->belongsToConversation($conversation);
+```
+
+## Testing Extensions
+
+```php tests/Feature/CustomPanelTest.php
+use Tests\TestCase;
+use App\Panels\CustomPanel;
+
+class CustomPanelTest extends TestCase
+{
+    public function test_custom_panel_features()
+    {
+        $panel = CustomPanel::make()
+            ->id('test')
+            ->aiModeration(true)
+            ->features(['voice-messages' => true]);
+        
+        $this->assertTrue($panel->hasAIModeration());
+        $this->assertTrue($panel->getFeatures()['voice-messages']);
+    }
+}
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Events" icon="bolt" href="/advanced/events">
+    Learn about WireChat events
+  </Card>
+  <Card title="Broadcasting" icon="tower-broadcast" href="/advanced/broadcasting">
+    Configure real-time features
+  </Card>
+</CardGroup>

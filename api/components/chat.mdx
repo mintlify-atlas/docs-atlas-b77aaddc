@@ -1,0 +1,479 @@
+---
+title: 'Chat Component'
+description: 'Livewire component for displaying and interacting with conversations'
+icon: 'message'
+---
+
+## Overview
+
+The `Chat` component is a Livewire component that handles displaying messages, sending new messages, and managing conversation interactions. It supports private, group, and self conversations with real-time updates via Laravel Echo.
+
+## Component Location
+
+```php
+Wirechat\Wirechat\Livewire\Chat\Chat
+```
+
+## Usage
+
+### Blade
+
+```blade
+<livewire:wirechat.chat :conversation="$conversation" />
+```
+
+### Livewire
+
+```php
+$this->dispatch('openChatWidget', conversation: $conversationId);
+```
+
+## Properties
+
+<ParamField path="conversation" type="Conversation" required>
+  The conversation instance being displayed
+</ParamField>
+
+<ParamField path="body" type="string">
+  The current message input text
+</ParamField>
+
+<ParamField path="loadedMessages" type="Collection">
+  Collection of loaded messages grouped by date
+</ParamField>
+
+<ParamField path="media" type="array">
+  Array of media attachments being uploaded
+</ParamField>
+
+<ParamField path="files" type="array">
+  Array of file attachments being uploaded
+</ParamField>
+
+<ParamField path="replyMessage" type="Message|null">
+  The message being replied to, if any
+</ParamField>
+
+<ParamField path="canLoadMore" type="bool">
+  Whether more messages can be loaded
+</ParamField>
+
+## Public Methods
+
+### sendMessage()
+
+Sends a new message in the conversation.
+
+```php
+public function sendMessage(): void
+```
+
+**Validation:**
+- Body is required if no attachments
+- Files must match configured MIME types and size limits
+- Rate limited to 60 messages per minute
+
+**Example:**
+```blade
+<form wire:submit="sendMessage">
+    <input type="text" wire:model="body" />
+    <button type="submit">Send</button>
+</form>
+```
+
+### sendLike()
+
+Sends a heart emoji (❤️) as a quick message.
+
+```php
+public function sendLike(): void
+```
+
+**Example:**
+```blade
+<button wire:click="sendLike">
+    <span>❤️</span>
+</button>
+```
+
+### setReply()
+
+Sets a message to reply to.
+
+<ParamField path="id" type="string" required>
+  Encrypted message ID
+</ParamField>
+
+```php
+public function setReply(string $id): void
+```
+
+**Example:**
+```blade
+<button wire:click="setReply('{{ encrypt($message->id) }}')'">
+    Reply
+</button>
+```
+
+### removeReply()
+
+Removes the current reply context.
+
+```php
+public function removeReply(): void
+```
+
+**Example:**
+```blade
+@if($replyMessage)
+    <div>
+        Replying to: {{ $replyMessage->body }}
+        <button wire:click="removeReply">Cancel</button>
+    </div>
+@endif
+```
+
+### deleteForMe()
+
+Deletes a message for the current user only.
+
+<ParamField path="id" type="string" required>
+  Encrypted message ID
+</ParamField>
+
+```php
+public function deleteForMe(string $id): void
+```
+
+**Example:**
+```blade
+<button wire:click="deleteForMe('{{ encrypt($message->id) }}')'">
+    Delete for me
+</button>
+```
+
+<Note>
+The message remains visible to other participants.
+</Note>
+
+### deleteForEveryone()
+
+Deletes a message for all participants.
+
+<ParamField path="id" type="string" required>
+  Encrypted message ID
+</ParamField>
+
+```php
+public function deleteForEveryone(string $id): void
+```
+
+**Authorization:**
+- User must own the message OR be an admin in group conversations
+
+**Example:**
+```blade
+@if($message->ownedBy(auth()->user()) || auth()->user()->isAdminIn($conversation))
+    <button wire:click="deleteForEveryone('{{ encrypt($message->id) }}')'">
+        Delete for everyone
+    </button>
+@endif
+```
+
+<Warning>
+If the message has replies, it will be soft deleted. Otherwise, it's permanently deleted.
+</Warning>
+
+### loadMore()
+
+Loads older messages in the conversation.
+
+```php
+public function loadMore(): void
+```
+
+**Example:**
+```blade
+@if($canLoadMore)
+    <button wire:click="loadMore">Load more messages</button>
+@endif
+```
+
+### deleteConversation()
+
+Deletes the conversation for the current user.
+
+```php
+public function deleteConversation(): void
+```
+
+**Example:**
+```blade
+<button wire:click="deleteConversation" 
+        wire:confirm="Are you sure you want to delete this chat?">
+    Delete Chat
+</button>
+```
+
+### clearConversation()
+
+Clears all messages in the conversation for the current user.
+
+```php
+public function clearConversation(): void
+```
+
+**Example:**
+```blade
+<button wire:click="clearConversation"
+        wire:confirm="Are you sure you want to clear this chat?">
+    Clear Chat
+</button>
+```
+
+### exitConversation()
+
+Exits a group conversation.
+
+```php
+public function exitConversation(): void
+```
+
+**Restrictions:**
+- Only available for group conversations
+- Group owners cannot exit
+
+**Example:**
+```blade
+@if($conversation->isGroup() && !auth()->user()->isOwnerOf($conversation))
+    <button wire:click="exitConversation"
+            wire:confirm="Are you sure you want to exit this group?">
+        Exit Group
+    </button>
+@endif
+```
+
+## Real-time Events
+
+The component listens for these broadcast events:
+
+### MessageCreated
+
+Triggered when a new message is sent by another user.
+
+**Channel:** `{panelId}.conversation.{conversationId}`
+
+**Handler:** `appendNewMessage()`
+
+```php
+public function appendNewMessage($event): void
+```
+
+### MessageDeleted
+
+Triggered when a message is deleted by another user.
+
+**Channel:** `{panelId}.conversation.{conversationId}`
+
+**Handler:** `removeDeletedMessage()`
+
+```php
+public function removeDeletedMessage($event): void
+```
+
+## Dispatched Events
+
+### scroll-bottom
+
+Scrolls the chat to the bottom.
+
+```javascript
+Livewire.on('scroll-bottom', () => {
+    // Scroll implementation
+});
+```
+
+### focus-input-field
+
+Focuses the message input field.
+
+```javascript
+Livewire.on('focus-input-field', () => {
+    document.querySelector('input[wire:model="body"]').focus();
+});
+```
+
+### refresh
+
+Refreshes the chat list component.
+
+```php
+$this->dispatch('refresh')->to(Chats::class);
+```
+
+### close-chat
+
+Closes the chat (widget mode).
+
+```php
+$this->dispatch('close-chat');
+```
+
+## File Uploads
+
+The component uses Livewire's `WithFileUploads` trait.
+
+### Supported Upload Types
+
+**Media:** Images, videos (configurable MIME types)
+
+**Files:** Documents, archives (configurable MIME types)
+
+### Configuration
+
+```php
+$panel
+    ->mediaMaxUploadSize(10240) // 10MB
+    ->fileMaxUploadSize(20480)  // 20MB
+    ->maxUploads(5)             // Max 5 files per message
+    ->mediaMimes(['image/jpeg', 'image/png', 'image/gif'])
+    ->fileMimes(['application/pdf', 'application/zip']);
+```
+
+### Upload Example
+
+```blade
+<input type="file" 
+       wire:model="media" 
+       accept="image/*"
+       multiple>
+
+<input type="file" 
+       wire:model="files" 
+       accept=".pdf,.zip"
+       multiple>
+
+@error('media.*') <span>{{ $message }}</span> @enderror
+@error('files.*') <span>{{ $message }}</span> @enderror
+```
+
+## Rate Limiting
+
+The component includes rate limiting to prevent spam:
+
+- **Limit:** 60 messages per minute per user
+- **Action:** Returns 429 error when exceeded
+
+```php
+protected function rateLimit(): void
+{
+    $perMinute = 60;
+    
+    if (RateLimiter::tooManyAttempts('send-message:'.auth()->id(), $perMinute)) {
+        abort(429, __('wirechat::chat.messages.rate_limit'));
+    }
+    
+    RateLimiter::increment('send-message:'.auth()->id());
+}
+```
+
+## Message Grouping
+
+Messages are automatically grouped by date:
+
+- **Today:** "Today"
+- **Yesterday:** "Yesterday"
+- **Last 7 days:** Day name (e.g., "Monday")
+- **Older:** Date format (e.g., "15/01/2026")
+
+```php
+private function messageGroupKey(Message $message): string
+{
+    $messageDate = $message->created_at;
+    
+    if ($messageDate->isToday()) {
+        return __('wirechat::chat.message_groups.today');
+    } elseif ($messageDate->isYesterday()) {
+        return __('wirechat::chat.message_groups.yesterday');
+    } elseif ($messageDate->greaterThanOrEqualTo(now()->subDays(7))) {
+        return $messageDate->format('l');
+    }
+    
+    return $messageDate->format('d/m/Y');
+}
+```
+
+## Complete Example
+
+```blade
+<div class="chat-container">
+    <!-- Header -->
+    <div class="chat-header">
+        <h3>{{ $conversation->name ?? $receiver->wirechat_name }}</h3>
+        
+        @if($conversation->isGroup() && !auth()->user()->isOwnerOf($conversation))
+            <button wire:click="exitConversation">Exit Group</button>
+        @endif
+        
+        <button wire:click="deleteConversation">Delete</button>
+    </div>
+    
+    <!-- Messages -->
+    <div class="messages">
+        @if($canLoadMore)
+            <button wire:click="loadMore">Load More</button>
+        @endif
+        
+        @foreach($loadedMessages as $date => $messages)
+            <div class="message-group">
+                <div class="date-header">{{ $date }}</div>
+                
+                @foreach($messages as $message)
+                    <div class="message">
+                        {{ $message->body }}
+                        
+                        <button wire:click="setReply('{{ encrypt($message->id) }}')'">
+                            Reply
+                        </button>
+                        
+                        <button wire:click="deleteForMe('{{ encrypt($message->id) }}')'">
+                            Delete for me
+                        </button>
+                        
+                        @if($message->ownedBy(auth()->user()))
+                            <button wire:click="deleteForEveryone('{{ encrypt($message->id) }}')'">
+                                Delete for everyone
+                            </button>
+                        @endif
+                    </div>
+                @endforeach
+            </div>
+        @endforeach
+    </div>
+    
+    <!-- Reply Preview -->
+    @if($replyMessage)
+        <div class="reply-preview">
+            Replying to: {{ $replyMessage->body }}
+            <button wire:click="removeReply">×</button>
+        </div>
+    @endif
+    
+    <!-- Input -->
+    <form wire:submit="sendMessage">
+        <input type="file" wire:model="media" multiple accept="image/*">
+        <input type="file" wire:model="files" multiple>
+        
+        <input type="text" wire:model="body" placeholder="Type a message...">
+        
+        <button type="submit">Send</button>
+        <button type="button" wire:click="sendLike">❤️</button>
+    </form>
+</div>
+```
+
+## Related
+
+- [Chats Component](/api/components/chats) - Conversations list
+- [Widget Component](/api/components/widget) - Modal chat widget
+- [InteractsWithWirechat Trait](/api/interacts-with-wirechat) - User chat methods

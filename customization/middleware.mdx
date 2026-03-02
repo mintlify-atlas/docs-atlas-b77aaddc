@@ -1,0 +1,460 @@
+---
+title: Middleware
+description: Configure authentication, authorization, and custom middleware for WireChat
+---
+
+## Overview
+
+WireChat includes built-in middleware for panel access control, conversation authorization, and route protection. You can also add custom middleware to implement additional security or business logic.
+
+## Built-in Middleware
+
+WireChat provides three core middleware classes:
+
+### SetCurrentPanel
+
+Sets the active panel for the current request.
+
+```php src/Middleware/SetCurrentPanel.php
+namespace Wirechat\Wirechat\Middleware;
+
+use Closure;
+use Illuminate\Http\Request;
+
+class SetCurrentPanel
+{
+    public function handle(Request $request, Closure $next, string $panelId)
+    {
+        app(\Wirechat\Wirechat\PanelRegistry::class)->setCurrent($panelId);
+        
+        return $next($request);
+    }
+}
+```
+
+<Note>
+This middleware is automatically applied to all WireChat routes and should not be removed.
+</Note>
+
+### EnsureWirechatPanelAccess
+
+Verifies that the authenticated user has permission to access a specific panel.
+
+```php src/Middleware/EnsureWirechatPanelAccess.php
+namespace Wirechat\Wirechat\Middleware;
+
+use Closure;
+use Illuminate\Support\Facades\Auth;
+use Wirechat\Wirechat\PanelRegistry;
+
+class EnsureWirechatPanelAccess
+{
+    public function handle($request, Closure $next, string $panelId)
+    {
+        $panel = app(PanelRegistry::class)->get($panelId);
+        
+        if (!$panel) {
+            abort(404, 'Panel not found.');
+        }
+        
+        $user = Auth::user();
+        
+        if (!$user || !$user->canAccessWirechatPanel($panel)) {
+            abort(404);
+        }
+        
+        return $next($request);
+    }
+}
+```
+
+#### Implementing Panel Access Control
+
+Add the `canAccessWirechatPanel` method to your User model:
+
+<Tabs>
+  <Tab title="Basic Access">
+    ```php app/Models/User.php
+    use Wirechat\Wirechat\Panel;
+    
+    public function canAccessWirechatPanel(Panel $panel): bool
+    {
+        // All authenticated users can access
+        return true;
+    }
+    ```
+  </Tab>
+  <Tab title="Role-Based Access">
+    ```php app/Models/User.php
+    use Wirechat\Wirechat\Panel;
+    
+    public function canAccessWirechatPanel(Panel $panel): bool
+    {
+        // Only users with 'chat' permission
+        return $this->can('access-chat');
+    }
+    ```
+  </Tab>
+  <Tab title="Panel-Specific Access">
+    ```php app/Models/User.php
+    use Wirechat\Wirechat\Panel;
+    
+    public function canAccessWirechatPanel(Panel $panel): bool
+    {
+        return match($panel->getId()) {
+            'admin' => $this->isAdmin(),
+            'support' => $this->hasRole(['support', 'admin']),
+            'default' => true,
+            default => false,
+        };
+    }
+    ```
+  </Tab>
+</Tabs>
+
+### BelongsToConversation
+
+Ensures the authenticated user is a participant in the requested conversation.
+
+```php src/Middleware/BelongsToConversation.php
+namespace Wirechat\Wirechat\Middleware;
+
+use Closure;
+use Illuminate\Http\Request;
+use Wirechat\Wirechat\Models\Conversation;
+
+class BelongsToConversation
+{
+    public function handle(Request $request, Closure $next)
+    {
+        $user = $request->user();
+        $conversationId = $request->route('conversation');
+        
+        $conversation = Conversation::findOrFail($conversationId);
+        
+        if (!$user || !$user->belongsToConversation($conversation)) {
+            abort(403, 'Forbidden');
+        }
+        
+        return $next($request);
+    }
+}
+```
+
+#### Implementing Conversation Authorization
+
+Add the `belongsToConversation` method to your User model:
+
+```php app/Models/User.php
+use Wirechat\Wirechat\Models\Conversation;
+use Wirechat\Wirechat\Concerns\Chats;
+
+class User extends Authenticatable
+{
+    use Chats;
+    
+    public function belongsToConversation(Conversation $conversation): bool
+    {
+        return $this->conversations()
+            ->where('conversations.id', $conversation->id)
+            ->exists();
+    }
+}
+```
+
+## Custom Middleware
+
+### Adding Middleware to Routes
+
+Configure global middleware for all WireChat routes:
+
+```php app/Providers/WirechatServiceProvider.php
+use Wirechat\Wirechat\Panel;
+
+Panel::make()
+    ->middleware([
+        'web',
+        'auth',
+        \App\Http\Middleware\VerifyEmailAddress::class,
+    ]);
+```
+
+### Chat-Specific Middleware
+
+Add middleware only to chat conversation routes:
+
+```php
+Panel::make()
+    ->chatMiddleware([
+        \App\Http\Middleware\LogChatActivity::class,
+        \App\Http\Middleware\CheckChatSubscription::class,
+    ]);
+```
+
+<Note>
+Chat middleware is applied in addition to global panel middleware.
+</Note>
+
+## Example Custom Middleware
+
+### Rate Limiting
+
+```php app/Http/Middleware/RateLimitChat.php
+namespace App\Http\Middleware;
+
+use Closure;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\RateLimiter;
+
+class RateLimitChat
+{
+    public function handle(Request $request, Closure $next)
+    {
+        $key = 'chat-access:' . $request->user()->id;
+        
+        if (RateLimiter::tooManyAttempts($key, 100)) {
+            return response()->json([
+                'message' => 'Too many requests. Please slow down.'
+            ], 429);
+        }
+        
+        RateLimiter::hit($key, 60);
+        
+        return $next($request);
+    }
+}
+```
+
+### Activity Logging
+
+```php app/Http/Middleware/LogChatActivity.php
+namespace App\Http\Middleware;
+
+use Closure;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
+
+class LogChatActivity
+{
+    public function handle(Request $request, Closure $next)
+    {
+        $user = $request->user();
+        $conversationId = $request->route('conversation');
+        
+        if ($conversationId) {
+            Log::info('Chat access', [
+                'user_id' => $user->id,
+                'conversation_id' => $conversationId,
+                'ip' => $request->ip(),
+                'user_agent' => $request->userAgent(),
+            ]);
+        }
+        
+        return $next($request);
+    }
+}
+```
+
+### Subscription Check
+
+```php app/Http/Middleware/CheckChatSubscription.php
+namespace App\Http\Middleware;
+
+use Closure;
+use Illuminate\Http\Request;
+
+class CheckChatSubscription
+{
+    public function handle(Request $request, Closure $next)
+    {
+        $user = $request->user();
+        
+        if (!$user->hasActiveSubscription()) {
+            return redirect()->route('subscription.required')
+                ->with('error', 'Please upgrade your plan to access chat.');
+        }
+        
+        return $next($request);
+    }
+}
+```
+
+### Content Moderation
+
+```php app/Http/Middleware/ContentModeration.php
+namespace App\Http\Middleware;
+
+use Closure;
+use Illuminate\Http\Request;
+
+class ContentModeration
+{
+    public function handle(Request $request, Closure $next)
+    {
+        $user = $request->user();
+        
+        // Check if user is banned or muted
+        if ($user->isBannedFromChat()) {
+            abort(403, 'You have been banned from chat.');
+        }
+        
+        if ($user->isMuted() && $request->isMethod('post')) {
+            abort(403, 'You are temporarily muted.');
+        }
+        
+        return $next($request);
+    }
+}
+```
+
+## Middleware Configuration
+
+### Panel-Level Middleware
+
+```php app/Providers/WirechatServiceProvider.php
+use Wirechat\Wirechat\Panel;
+
+// Admin panel with strict middleware
+Panel::make()
+    ->id('admin')
+    ->middleware([
+        'web',
+        'auth',
+        \App\Http\Middleware\MustBeAdmin::class,
+    ]);
+
+// Customer support panel
+Panel::make()
+    ->id('support')
+    ->middleware([
+        'web',
+        'auth',
+        \App\Http\Middleware\MustBeSupportAgent::class,
+    ])
+    ->chatMiddleware([
+        \App\Http\Middleware\LogSupportActivity::class,
+    ]);
+
+// Public user panel
+Panel::make()
+    ->id('default')
+    ->middleware([
+        'web',
+        'auth',
+    ])
+    ->chatMiddleware([
+        \App\Http\Middleware\CheckChatSubscription::class,
+    ]);
+```
+
+## Authentication Guards
+
+### Using Custom Guards
+
+If you're using custom authentication guards:
+
+```php app/Providers/WirechatServiceProvider.php
+Panel::make()
+    ->authGuard('admin')
+    ->middleware([
+        'web',
+        'auth:admin',
+    ]);
+```
+
+### Multiple Guards
+
+```php
+Panel::make()
+    ->id('multi-auth')
+    ->middleware([
+        'web',
+        'auth:web,api',
+    ]);
+```
+
+## Middleware Execution Order
+
+Middleware is executed in this order:
+
+<Steps>
+  <Step title="Global Middleware">
+    Laravel's global middleware from `app/Http/Kernel.php`
+  </Step>
+  <Step title="Panel Middleware">
+    Middleware configured via `Panel::middleware()`
+  </Step>
+  <Step title="WireChat Core Middleware">
+    - `SetCurrentPanel`
+    - `EnsureWirechatPanelAccess`
+  </Step>
+  <Step title="Chat Middleware">
+    Middleware configured via `Panel::chatMiddleware()` (chat routes only)
+    - `BelongsToConversation` (conversation routes only)
+  </Step>
+</Steps>
+
+## Testing Middleware
+
+### Feature Test Example
+
+```php tests/Feature/ChatAccessTest.php
+namespace Tests\Feature;
+
+use Tests\TestCase;
+use App\Models\User;
+use Wirechat\Wirechat\Models\Conversation;
+
+class ChatAccessTest extends TestCase
+{
+    public function test_user_can_access_own_conversation()
+    {
+        $user = User::factory()->create();
+        $conversation = Conversation::factory()->create();
+        $conversation->addParticipant($user);
+        
+        $this->actingAs($user)
+            ->get(route('wirechat.chat', $conversation->id))
+            ->assertOk();
+    }
+    
+    public function test_user_cannot_access_other_conversation()
+    {
+        $user = User::factory()->create();
+        $otherConversation = Conversation::factory()->create();
+        
+        $this->actingAs($user)
+            ->get(route('wirechat.chat', $otherConversation->id))
+            ->assertForbidden();
+    }
+    
+    public function test_guest_cannot_access_chat()
+    {
+        $conversation = Conversation::factory()->create();
+        
+        $this->get(route('wirechat.chat', $conversation->id))
+            ->assertRedirect(route('login'));
+    }
+}
+```
+
+## Best Practices
+
+<Tip>
+- Always verify user authorization at both the middleware and component level
+- Use rate limiting to prevent abuse
+- Log important chat activities for audit trails
+- Keep middleware focused on a single responsibility
+- Test middleware thoroughly with different user roles
+</Tip>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Actions" icon="bolt" href="/customization/actions">
+    Configure chat and group actions
+  </Card>
+  <Card title="Broadcasting" icon="tower-broadcast" href="/features/broadcasting">
+    Set up real-time events
+  </Card>
+</CardGroup>

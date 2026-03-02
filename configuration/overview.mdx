@@ -1,0 +1,257 @@
+---
+title: Configuration Overview
+description: Learn how to configure WireChat panels and customize your chat experience
+---
+
+## Introduction
+
+WireChat is configured through **Panel Providers** that extend the base `PanelProvider` class. Each panel represents an independent chat instance with its own configuration, routes, and behavior.
+
+## Configuration File
+
+WireChat includes a global configuration file that controls database and storage settings:
+
+```php
+// config/wirechat.php
+return [
+    /*
+    |--------------------------------------------------------------------------
+    | Use UUIDs for Conversations
+    |--------------------------------------------------------------------------
+    |
+    | Determines the primary key type for the conversations table and related
+    | relationships. When enabled, UUIDs (version 7 if supported, otherwise
+    | version 4) will be used during initial migrations.
+    |
+    | ⚠️ This setting is intended for **new applications only** and does not
+    | affect how new conversations are created at runtime.
+    |
+    */
+    'uses_uuid_for_conversations' => false,
+
+    /*
+    |--------------------------------------------------------------------------
+    | Table Prefix
+    |--------------------------------------------------------------------------
+    |
+    | This value will be prefixed to all Wirechat-related database tables.
+    | Useful if you're sharing a database with other apps or packages.
+    | ⚠️ This setting is intended for **new applications only**
+    |
+    */
+    'table_prefix' => 'wirechat_',
+
+    /*
+     |--------------------------------------------------------------------------
+     | Storage
+     |--------------------------------------------------------------------------
+     |
+     | Global configuration for Wirechat file storage. Defines the disk,
+     | directory, and visibility used for saving attachments.
+     |
+     */
+    'storage' => [
+        'disk' => 'public',
+        'visibility' => 'public',
+        'directories' => [
+            'attachments' => 'attachments',
+        ],
+    ],
+];
+```
+
+<Note>
+The `uses_uuid_for_conversations` and `table_prefix` settings only affect initial migrations and cannot be changed after running migrations.
+</Note>
+
+## Creating a Panel Provider
+
+Panel Providers are the primary way to configure WireChat. Create a new provider class that extends `PanelProvider`:
+
+```php
+namespace App\Providers\Wirechat;
+
+use Wirechat\Wirechat\Panel;
+use Wirechat\Wirechat\PanelProvider;
+
+class AdminPanelProvider extends PanelProvider
+{
+    public function panel(Panel $panel): Panel
+    {
+        return $panel
+            ->id('admin')
+            ->path('admin')
+            ->default()
+            ->middleware(['web', 'auth'])
+            ->guards(['web']);
+    }
+}
+```
+
+## Registering Panel Providers
+
+Register your panel provider in `config/app.php`:
+
+```php
+'providers' => [
+    // ...
+    App\Providers\Wirechat\AdminPanelProvider::class,
+],
+```
+
+## Core Panel Configuration
+
+Every panel requires a few essential configuration methods:
+
+<ParamField path="id" type="string" required>
+  Unique identifier for the panel. Used in routes and broadcasting channels.
+  
+  ```php
+  $panel->id('admin')
+  ```
+</ParamField>
+
+<ParamField path="path" type="string" required>
+  Base path for the panel's routes. Panel will be accessible at `/path`.
+  
+  ```php
+  $panel->path('admin')
+  ```
+</ParamField>
+
+<ParamField path="default" type="bool" default="false">
+  Marks this panel as the default panel. Only one panel can be default.
+  
+  ```php
+  $panel->default()
+  ```
+</ParamField>
+
+<ParamField path="middleware" type="array" default="['auth']">
+  Middleware applied to all panel routes.
+  
+  ```php
+  $panel->middleware(['web', 'auth', 'verified'])
+  ```
+</ParamField>
+
+<ParamField path="guards" type="array" default="['web']">
+  Authentication guards used for the panel.
+  
+  ```php
+  $panel->guards(['web', 'admin'])
+  ```
+</ParamField>
+
+## Layout Configuration
+
+<ParamField path="layout" type="string|Closure" default="'wirechat::layouts.app'">
+  Custom layout view for the panel.
+  
+  ```php
+  $panel->layout('layouts.chat')
+  ```
+</ParamField>
+
+<ParamField path="homeUrl" type="string|Closure">
+  Home URL to redirect users when needed.
+  
+  ```php
+  $panel->homeUrl('/dashboard')
+  ```
+</ParamField>
+
+## Route Configuration
+
+<ParamField path="registerRoutes" type="bool|Closure" default="true">
+  Enable or disable automatic route registration.
+  
+  ```php
+  $panel->registerRoutes(false)
+  ```
+</ParamField>
+
+<ParamField path="routes" type="Closure">
+  Register custom routes for the panel.
+  
+  ```php
+  $panel->routes(function ($panel) {
+      Route::get('/custom', CustomController::class);
+  })
+  ```
+</ParamField>
+
+## Multiple Panels
+
+You can create multiple panels for different user types or contexts:
+
+```php
+// Admin Panel
+class AdminPanelProvider extends PanelProvider
+{
+    public function panel(Panel $panel): Panel
+    {
+        return $panel
+            ->id('admin')
+            ->path('admin')
+            ->default()
+            ->guards(['admin'])
+            ->middleware(['web', 'auth:admin']);
+    }
+}
+
+// Customer Support Panel
+class SupportPanelProvider extends PanelProvider
+{
+    public function panel(Panel $panel): Panel
+    {
+        return $panel
+            ->id('support')
+            ->path('support')
+            ->guards(['web'])
+            ->middleware(['web', 'auth']);
+    }
+}
+```
+
+<Warning>
+Only one panel can be marked as `default()`. Attempting to mark multiple panels as default will throw an exception.
+</Warning>
+
+## Generated Routes
+
+Each panel automatically generates two main routes:
+
+- **Chats Index**: `wirechat.{panelId}.chats` - Lists all conversations
+- **Chat Show**: `wirechat.{panelId}.chat` - Shows a specific conversation
+
+You can generate URLs using the panel's route methods:
+
+```php
+use Wirechat\Wirechat\Facades\Wirechat;
+
+$panel = Wirechat::getPanel('admin');
+
+// Generate chats index URL
+$chatsUrl = $panel->chatsRoute();
+
+// Generate specific chat URL
+$chatUrl = $panel->chatRoute($conversationId);
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Panel Configuration" icon="sliders" href="/configuration/panels">
+    Learn about all available panel configuration options
+  </Card>
+  <Card title="Colors" icon="palette" href="/configuration/colors">
+    Customize panel colors and themes
+  </Card>
+  <Card title="Storage" icon="hard-drive" href="/configuration/storage">
+    Configure file storage for attachments
+  </Card>
+  <Card title="Broadcasting" icon="broadcast-tower" href="/configuration/broadcasting">
+    Set up real-time message broadcasting
+  </Card>
+</CardGroup>

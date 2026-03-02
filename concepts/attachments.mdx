@@ -1,0 +1,460 @@
+---
+title: Attachments
+description: Understanding attachments in WireChat - file uploads and media handling
+---
+
+## Overview
+
+Attachments in WireChat provide a flexible, polymorphic system for handling file uploads. They can be attached to messages or used as group cover images, with support for both local and cloud storage.
+
+## Attachment Model
+
+Attachments use a polymorphic relationship to attach files to various models:
+
+```php
+use Wirechat\Wirechat\Models\Attachment;
+
+/**
+ * @property int $id
+ * @property string $attachable_type
+ * @property int $attachable_id
+ * @property string $file_path
+ * @property string $file_name
+ * @property string $original_name
+ * @property string $url
+ * @property string $mime_type
+ * @property \Illuminate\Support\Carbon|null $created_at
+ * @property \Illuminate\Support\Carbon|null $updated_at
+ */
+```
+
+## Polymorphic Attachable
+
+Attachments can be attached to different models:
+
+```php
+// Attach to a message
+$attachment = Attachment::create([
+    'attachable_type' => Message::class,
+    'attachable_id' => $message->id,
+    'file_path' => 'uploads/files/document.pdf',
+    'file_name' => 'document.pdf',
+    'original_name' => 'My Document.pdf',
+    'mime_type' => 'application/pdf',
+]);
+
+// Attach to a group (cover image)
+$attachment = Attachment::create([
+    'attachable_type' => Group::class,
+    'attachable_id' => $group->id,
+    'file_path' => 'uploads/covers/image.jpg',
+    'file_name' => 'image.jpg',
+    'original_name' => 'Group Cover.jpg',
+    'mime_type' => 'image/jpeg',
+]);
+```
+
+## Relationships
+
+### Attachable
+
+The polymorphic relationship to the parent model:
+
+```php
+public function attachable(): MorphTo
+{
+    return $this->morphTo();
+}
+
+// Usage
+$owner = $attachment->attachable; // Returns Message or Group
+```
+
+### Message Attachments
+
+Messages have a one-to-one morphOne relationship:
+
+```php
+// From Message model
+public function attachment(): MorphOne
+{
+    return $this->morphOne(Attachment::class, 'attachable');
+}
+
+// Check if message has attachment
+if ($message->hasAttachment()) {
+    $attachment = $message->attachment;
+}
+```
+
+### Group Cover Images
+
+Groups also use the attachment system:
+
+```php
+// From Group model
+public function cover(): MorphOne
+{
+    return $this->morphOne(Attachment::class, 'attachable');
+}
+
+// Access cover
+if ($group->cover) {
+    echo $group->cover_url;
+}
+```
+
+## Storage Configuration
+
+Attachments use the configured storage disk from WireChat:
+
+```php
+use Wirechat\Wirechat\Facades\Wirechat;
+
+$disk = Wirechat::storage()->disk(); // 'public', 's3', etc.
+$visibility = Wirechat::storage()->visibility(); // 'public' or 'private'
+```
+
+## URL Generation
+
+Attachment URLs are generated dynamically based on storage configuration:
+
+```php
+protected function url(): Attribute
+{
+    return Attribute::make(
+        get: fn ($value, array $attributes) => 
+            $this->generateUrl($attributes['file_path'] ?? null)
+    );
+}
+
+protected function generateUrl(?string $path): ?string
+{
+    if (!$path) {
+        return null;
+    }
+
+    $diskVisibility = Wirechat::storage()->visibility();
+    $storageDisk = Wirechat::storage()->disk();
+    $disk = Storage::disk($storageDisk);
+
+    // If the disk is set to private, generate a temporary URL
+    if ($diskVisibility === 'private') {
+        return $disk->temporaryUrl($path, now()->addMinutes(5));
+    }
+
+    return $disk->url($path);
+}
+```
+
+<Info>
+  For private storage, WireChat automatically generates temporary URLs that expire after 5 minutes.
+</Info>
+
+## Accessing URLs
+
+Get attachment URLs easily:
+
+```php
+// Direct URL access
+echo $attachment->url;
+
+// For messages
+if ($message->hasAttachment()) {
+    echo $message->attachment->url;
+}
+
+// For groups
+echo $group->cover_url; // Uses cover->url internally
+```
+
+## MIME Types
+
+Attachments store the full MIME type and provide a clean accessor:
+
+```php
+// Full MIME type
+echo $attachment->mime_type; // "image/jpeg"
+
+// Clean type (extension only)
+echo $attachment->clean_mime_type; // "jpeg"
+```
+
+From the source code:
+
+```php
+public function getCleanMimeTypeAttribute(): string
+{
+    return explode('/', $this->mime_type)[1] ?? 'unknown';
+}
+```
+
+## File Names
+
+Attachments track both the stored filename and original filename:
+
+```php
+// Stored filename (sanitized)
+echo $attachment->file_name; // "abc123-document.pdf"
+
+// Original filename (user's original)
+echo $attachment->original_name; // "My Important Document.pdf"
+```
+
+<Note>
+  Always sanitize filenames before storing them to prevent security issues and filesystem conflicts.
+</Note>
+
+## Creating Attachments
+
+Complete example of creating an attachment:
+
+```php
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Storage;
+use Wirechat\Wirechat\Facades\Wirechat;
+
+function uploadAttachment(UploadedFile $file, Message $message): Attachment
+{
+    $disk = Wirechat::storage()->disk();
+    
+    // Store the file
+    $path = $file->store('uploads/messages', $disk);
+    
+    // Create attachment record
+    return Attachment::create([
+        'attachable_type' => Message::class,
+        'attachable_id' => $message->id,
+        'file_path' => $path,
+        'file_name' => basename($path),
+        'original_name' => $file->getClientOriginalName(),
+        'mime_type' => $file->getMimeType(),
+    ]);
+}
+```
+
+## Automatic Deletion
+
+Attachments are automatically deleted from storage when the model is deleted:
+
+```php
+protected static function boot(): void
+{
+    parent::boot();
+
+    static::deleted(function (Attachment $media) {
+        $disk = Wirechat::storage()->disk();
+
+        if (Storage::disk($disk)->exists($media->file_path)) {
+            Storage::disk($disk)->delete($media->file_path);
+        }
+    });
+}
+```
+
+<Warning>
+  When an attachment record is deleted, the physical file is automatically removed from storage. This is irreversible.
+</Warning>
+
+## Message Attachments
+
+Sending a message with an attachment:
+
+```php
+use Wirechat\Wirechat\Enums\MessageType;
+
+// Create message
+$message = Message::create([
+    'body' => 'Check out this file!',
+    'type' => MessageType::ATTACHMENT,
+    'participant_id' => $participant->id,
+    'conversation_id' => $conversation->id,
+]);
+
+// Upload and attach file
+$attachment = uploadAttachment($file, $message);
+
+// Check attachment
+if ($message->isAttachment()) {
+    echo $message->attachment->url;
+}
+```
+
+## Group Cover Images
+
+Uploading a group cover image:
+
+```php
+function updateGroupCover(UploadedFile $file, Group $group): Attachment
+{
+    $disk = Wirechat::storage()->disk();
+    
+    // Delete existing cover
+    if ($group->cover) {
+        $group->cover->delete();
+    }
+    
+    // Store new cover
+    $path = $file->store('uploads/covers', $disk);
+    
+    return Attachment::create([
+        'attachable_type' => Group::class,
+        'attachable_id' => $group->id,
+        'file_path' => $path,
+        'file_name' => basename($path),
+        'original_name' => $file->getClientOriginalName(),
+        'mime_type' => $file->getMimeType(),
+    ]);
+}
+```
+
+## File Validation
+
+Validate uploads before creating attachments:
+
+```php
+use Illuminate\Support\Facades\Validator;
+
+function validateAttachment(UploadedFile $file): bool
+{
+    $validator = Validator::make(
+        ['file' => $file],
+        [
+            'file' => [
+                'required',
+                'file',
+                'max:10240', // 10MB
+                'mimes:jpg,jpeg,png,pdf,doc,docx,txt',
+            ],
+        ]
+    );
+    
+    return $validator->passes();
+}
+```
+
+<Tip>
+  Always validate file size and type before storing to prevent security issues and storage bloat.
+</Tip>
+
+## Display Attachments
+
+Render attachments based on MIME type:
+
+```php
+@if($message->hasAttachment())
+    @php
+        $attachment = $message->attachment;
+        $mimeType = $attachment->clean_mime_type;
+    @endphp
+    
+    @if(str_starts_with($attachment->mime_type, 'image/'))
+        <img src="{{ $attachment->url }}" alt="{{ $attachment->original_name }}" />
+    @elseif(str_starts_with($attachment->mime_type, 'video/'))
+        <video controls src="{{ $attachment->url }}"></video>
+    @elseif(str_starts_with($attachment->mime_type, 'audio/'))
+        <audio controls src="{{ $attachment->url }}"></audio>
+    @else
+        <a href="{{ $attachment->url }}" download>
+            {{ $attachment->original_name }} (.{{ $mimeType }})
+        </a>
+    @endif
+@endif
+```
+
+## Best Practices
+
+<Tip>
+  - Always validate file uploads before processing
+  - Sanitize filenames to prevent directory traversal attacks
+  - Set appropriate file size limits based on your needs
+  - Use private storage for sensitive files
+  - Delete old attachments when updating (especially for covers)
+  - Consider image optimization for cover images
+  - Use chunked uploads for large files
+  - Implement virus scanning for production applications
+</Tip>
+
+## Security Considerations
+
+<Warning>
+  - Never trust user-supplied MIME types alone - validate file contents
+  - Restrict allowed file types based on your application needs
+  - Use private storage for sensitive documents
+  - Implement proper access controls for attachment URLs
+  - Consider rate limiting file uploads
+  - Scan uploaded files for malware in production
+</Warning>
+
+## Common Patterns
+
+### Complete File Upload Flow
+
+```php
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+
+function sendMessageWithAttachment(Request $request, Conversation $conversation)
+{
+    $request->validate([
+        'message' => 'nullable|string|max:1000',
+        'file' => 'required|file|max:10240|mimes:jpg,jpeg,png,pdf,doc,docx',
+    ]);
+    
+    return DB::transaction(function () use ($request, $conversation) {
+        // Create message
+        $message = Message::create([
+            'body' => $request->message,
+            'type' => MessageType::ATTACHMENT,
+            'participant_id' => $conversation->participant(auth()->user())->id,
+            'conversation_id' => $conversation->id,
+        ]);
+        
+        // Upload file
+        $disk = Wirechat::storage()->disk();
+        $path = $request->file('file')->store('uploads/messages', $disk);
+        
+        // Create attachment
+        Attachment::create([
+            'attachable_type' => Message::class,
+            'attachable_id' => $message->id,
+            'file_path' => $path,
+            'file_name' => basename($path),
+            'original_name' => $request->file('file')->getClientOriginalName(),
+            'mime_type' => $request->file('file')->getMimeType(),
+        ]);
+        
+        return $message->load('attachment');
+    });
+}
+```
+
+### Check File Type
+
+```php
+function isImage(Attachment $attachment): bool
+{
+    return str_starts_with($attachment->mime_type, 'image/');
+}
+
+function isVideo(Attachment $attachment): bool
+{
+    return str_starts_with($attachment->mime_type, 'video/');
+}
+
+function isDocument(Attachment $attachment): bool
+{
+    return in_array($attachment->clean_mime_type, ['pdf', 'doc', 'docx', 'txt']);
+}
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Messages" icon="message" href="/concepts/messages">
+    Learn how attachments work with messages
+  </Card>
+  <Card title="Groups" icon="users" href="/concepts/groups">
+    Understand group cover images
+  </Card>
+</CardGroup>

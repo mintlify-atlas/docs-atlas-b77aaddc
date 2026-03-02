@@ -1,0 +1,227 @@
+---
+title: 'wirechat:setup-notifications'
+description: 'Setup WireChat service worker for push notifications'
+---
+
+## Overview
+
+The `wirechat:setup-notifications` command configures browser push notifications for WireChat by creating the necessary service worker files in your public directory.
+
+## Command Signature
+
+```bash
+php artisan wirechat:setup-notifications
+```
+
+## What It Does
+
+<Steps>
+  <Step title="Create Wirechat Service Worker">
+    Creates `public/js/wirechat/sw.js` - the WireChat-specific service worker that handles chat notifications.
+  </Step>
+  
+  <Step title="Create Main Service Worker">
+    Creates `public/sw.js` - the main service worker that imports the WireChat service worker.
+  </Step>
+  
+  <Step title="Configure Directory Structure">
+    Automatically creates the `public/js/wirechat/` directory if it doesn't exist.
+  </Step>
+</Steps>
+
+## Interactive Prompts
+
+### Overwrite WireChat Service Worker
+
+If `public/js/wirechat/sw.js` already exists:
+
+```bash
+Wirechat service worker script already exists at `js/wirechat/sw.js`. Do you want to overwrite it? (yes/no) [no]
+```
+
+### Existing Main Service Worker
+
+If `public/sw.js` already exists, the command will NOT overwrite it. Instead, you'll see:
+
+```bash
+⚠️ A service worker (sw.js) already exists in the public directory.
+To use Wirechat notifications, add the following at the top of your service worker file:
+`importScripts('/js/wirechat/sw.js');`
+```
+
+<Warning>
+If you already have a custom service worker, you must manually integrate the WireChat service worker by adding the `importScripts` line.
+</Warning>
+
+## Example Output
+
+### First-Time Setup
+
+```bash
+$ php artisan wirechat:setup-notifications
+
+Setting up Notifications...
+Creating Wirechat service worker script...
+✅ Wirechat service worker script successfully created at `js/wirechat/sw.js`.
+
+Creating main service worker script...
+✅ Created `sw.js` in the public directory.
+✅ Wirechat notifications setup complete!
+
+Note: If you're already using a custom service worker in your application, you need to 
+manually add `importScripts('/js/wirechat/sw.js');` to your existing service worker file 
+and update the notifications.main_sw_script value in config/wirechat.php to point to your 
+service worker file.
+
+Finally, ensure that `notifications.enabled` is set to true in your Wirechat config.
+```
+
+### With Existing Service Worker
+
+```bash
+$ php artisan wirechat:setup-notifications
+
+Setting up Notifications...
+Creating Wirechat service worker script...
+✅ Wirechat service worker script successfully created at `js/wirechat/sw.js`.
+
+Creating main service worker script...
+⚠️ A service worker (sw.js) already exists in the public directory.
+To use Wirechat notifications, add the following at the top of your service worker file:
+`importScripts('/js/wirechat/sw.js');`
+
+✅ Wirechat notifications setup complete!
+```
+
+## Files Created
+
+<ParamField path="public/js/wirechat/sw.js" type="file">
+  WireChat service worker that handles push notification events, click actions, and notification display.
+</ParamField>
+
+<ParamField path="public/sw.js" type="file">
+  Main service worker file that imports the WireChat service worker. Only created if it doesn't already exist.
+</ParamField>
+
+## Manual Integration
+
+If you have an existing service worker, add this at the top of your `public/sw.js`:
+
+```javascript
+importScripts('/js/wirechat/sw.js');
+
+// Your existing service worker code...
+self.addEventListener('fetch', (event) => {
+  // Your fetch handler
+});
+```
+
+## Configuration
+
+After running the command, ensure notifications are enabled in your panel provider:
+
+```php
+public function panel(Panel $panel): Panel
+{
+    return $panel
+        ->id('chats')
+        ->webPushNotifications()
+        ->serviceWorkerPath(asset('sw.js')); // Optional: custom path
+}
+```
+
+Or in your `config/wirechat.php` (legacy configuration):
+
+```php
+'notifications' => [
+    'enabled' => true,
+    'main_sw_script' => 'sw.js', // Path to your service worker
+],
+```
+
+## Custom Service Worker Path
+
+If you use a custom service worker path:
+
+<Steps>
+  <Step title="Update Panel Configuration">
+    ```php
+    ->serviceWorkerPath(asset('my-custom-sw.js'))
+    ```
+  </Step>
+  
+  <Step title="Import WireChat Service Worker">
+    Add to your custom service worker:
+    ```javascript
+    importScripts('/js/wirechat/sw.js');
+    ```
+  </Step>
+  
+  <Step title="Update Config (if using legacy config)">
+    ```php
+    'notifications' => [
+        'main_sw_script' => 'my-custom-sw.js',
+    ],
+    ```
+  </Step>
+</Steps>
+
+## Testing Notifications
+
+After setup:
+
+1. Ensure your application is served over HTTPS (required for service workers)
+2. Grant notification permissions in your browser
+3. Open the chat in one browser/tab and send a message from another
+4. You should see browser notifications for new messages
+
+<Note>
+Service workers require HTTPS in production. For local development, `localhost` is treated as a secure context.
+</Note>
+
+## Troubleshooting
+
+### Notifications Not Working
+
+<CodeGroup>
+```php Check Panel Config
+// Ensure this is set in your panel provider
+->webPushNotifications()
+```
+
+```javascript Check Service Worker Registration
+// In browser console
+navigator.serviceWorker.getRegistrations().then(registrations => {
+  console.log(registrations);
+});
+```
+
+```javascript Check Notification Permission
+// In browser console
+console.log(Notification.permission);
+```
+</CodeGroup>
+
+### Service Worker Not Loading
+
+Ensure the service worker file exists:
+```bash
+ls -la public/sw.js
+ls -la public/js/wirechat/sw.js
+```
+
+### Cache Issues
+
+Force refresh the service worker:
+```javascript
+// In browser console
+navigator.serviceWorker.getRegistrations().then(registrations => {
+  registrations.forEach(registration => registration.unregister());
+});
+```
+
+Then hard refresh your browser (Ctrl+Shift+R or Cmd+Shift+R).
+
+## Source Reference
+
+Command implementation: `~/workspace/source/src/Console/Commands/SetupNotifications.php:10`

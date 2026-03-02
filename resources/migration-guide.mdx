@@ -1,0 +1,245 @@
+---
+title: Migration Guide
+description: Step-by-step guide to migrate WireChat from v0.2.x to v0.3.x
+---
+
+## Migrating from v0.2.x to v0.3.x
+
+Version 0.3.0 introduces a major architectural shift from config-based to **Panel-based** settings. This provides a cleaner, more extensible way to define WireChat environments (e.g., user, admin, support panels).
+
+<Warning>
+  This is a **breaking change** that requires manual migration steps. Please backup your database and code before proceeding.
+</Warning>
+
+## What Changed in v0.3.x
+
+The major changes include:
+
+- **Panels replace config-based settings**: Each chat environment is now defined as a Panel provider
+- **Namespace change**: `Namu\WireChat` → `Wirechat\Wirechat`
+- **New trait name**: `Chatable` → `InteractsWithWireChat`
+- **New accessor methods**: Prefixed with `wirechat` (e.g., `getWirechatAvatarUrlAttribute`)
+- **Storage config keys**: `attachments.*` → `storage.*`
+- **UUID config key**: `uuids` → `uses_uuid_for_conversations`
+- **Polymorphic columns**: Support for both UUID and bigint IDs
+
+<Steps>
+
+### Step 1: Update Composer Package
+
+First, update your `composer.json` to use the new package name:
+
+```bash
+composer remove namu/wirechat
+composer require wirechat/wirechat:^0.3
+```
+
+### Step 2: Upgrade Namespace References
+
+Run the namespace upgrade command to automatically update all references from `Namu\WireChat` to `Wirechat\Wirechat`:
+
+```bash
+php artisan wirechat:upgrade-namespace-to-v0.3x
+```
+
+<Tip>
+  Use the `--dry-run` flag to preview changes without applying them:
+  ```bash
+  php artisan wirechat:upgrade-namespace-to-v0.3x --dry-run
+  ```
+</Tip>
+
+This command will:
+- Search for all `.php` files (excluding vendor and storage)
+- Replace `Namu\WireChat` with `Wirechat\Wirechat`
+- Display a list of updated files
+
+<Note>
+  On Windows, you'll need Git Bash or WSL to run this command. Alternatively, manually replace namespaces in your IDE.
+</Note>
+
+### Step 3: Upgrade Polymorphic Columns
+
+Run the morph columns upgrade command to ensure polymorphic relationships work with both UUID and bigint IDs:
+
+```bash
+php artisan wirechat:upgrade-morph-columns
+```
+
+<Tip>
+  Preview changes first:
+  ```bash
+  php artisan wirechat:upgrade-morph-columns --dry-run
+  ```
+</Tip>
+
+This command will:
+- Convert `actionable_id`, `actionable_type`, `actor_id`, `actor_type` columns to VARCHAR
+- Convert `attachable_id` and `attachable_type` columns to VARCHAR
+- Add composite indexes for better performance
+- Handle different database drivers (MySQL, PostgreSQL, SQLite)
+
+### Step 4: Update User Model
+
+Update your User model to use the new trait and interface:
+
+**Before (v0.2.x):**
+```php
+use Namu\WireChat\Traits\Chatable;
+
+class User extends Authenticatable
+{
+    use Chatable;
+}
+```
+
+**After (v0.3.x):**
+```php
+use Wirechat\Wirechat\Contracts\WireChatUser;
+use Wirechat\Wirechat\Traits\InteractsWithWireChat;
+
+class User extends Authenticatable implements WireChatUser
+{
+    use InteractsWithWireChat;
+}
+```
+
+<Note>
+  The old `Chatable` trait is backwards-compatible for now but deprecated.
+</Note>
+
+### Step 5: Update Accessor Methods
+
+Update your custom accessor methods to use the new `wirechat` prefix:
+
+**Before (v0.2.x):**
+```php
+public function getAvatarUrlAttribute(): ?string
+public function getProfileUrlAttribute(): ?string  
+public function getDisplayNameAttribute(): string
+```
+
+**After (v0.3.x):**
+```php
+public function getWirechatAvatarUrlAttribute(): ?string
+public function getWirechatProfileUrlAttribute(): ?string
+public function getWirechatDisplayNameAttribute(): string
+```
+
+### Step 6: Update Configuration
+
+Update your `config/wirechat.php` file to use the new configuration keys:
+
+**Before (v0.2.x):**
+```php
+return [
+    'uuids' => false,
+    'attachments' => [
+        'disk' => 'public',
+        'disk_visibility' => 'public',
+    ],
+];
+```
+
+**After (v0.3.x):**
+```php
+return [
+    'uses_uuid_for_conversations' => false,
+    'storage' => [
+        'disk' => 'public',
+        'visibility' => 'public',
+        'directories' => [
+            'attachments' => 'attachments',
+        ],
+    ],
+];
+```
+
+### Step 7: Update Broadcasting Channels
+
+If you're listening to participant channels, update to the new encoded format:
+
+**Before (v0.1.x):**
+```javascript
+let userId = @js(auth()->id());
+
+Echo.private(`participant.${userId}`)
+    .listen('.Namu\\Wirechat\\Events\\NotifyParticipant', (e) => {
+        console.log(e);
+    });
+```
+
+**After (v0.3.x):**
+```javascript
+let userId = @js(auth()->id());
+let encodedType = @js(Wirechat\Wirechat\Helpers\MorphClassResolver::encode(auth()->user()->getMorphClass()));
+
+Echo.private(`participant.${encodedType}.${userId}`)
+    .listen('.Wirechat\\Wirechat\\Events\\NotifyParticipant', (e) => {
+        console.log(e);
+    });
+```
+
+### Step 8: Clear Caches
+
+Clear all Laravel caches to ensure changes take effect:
+
+```bash
+php artisan view:clear
+php artisan config:clear
+php artisan cache:clear
+```
+
+</Steps>
+
+## New Features in v0.3.x
+
+<Accordion title="Panel-Based Configuration">
+  Generate new panel providers for different chat environments:
+  
+  ```bash
+  php artisan make:wirechat-panel AdminPanel
+  ```
+  
+  This creates a dedicated panel provider where you can customize user search, storage, routes, and more.
+</Accordion>
+
+<Accordion title="Conditional Route Registration">
+  Control when panel routes are registered:
+  
+  ```php
+  $panel->registerRoutes(fn () => auth()->check());
+  ```
+</Accordion>
+
+<Accordion title="Panel-Specific User Search">
+  Customize user search per panel:
+  
+  ```php
+  $panel->searchUsersUsing(function ($query) {
+      return User::where('name', 'like', "%{$query}%")
+          ->where('is_admin', true)
+          ->limit(10)
+          ->get();
+  });
+  ```
+</Accordion>
+
+<Accordion title="TailwindCSS v4.0+ Support">
+  Full support for the latest TailwindCSS version with improved theming.
+</Accordion>
+
+## Deprecated Features
+
+These features still work but will be removed in a future version:
+
+- ❌ `namu/wirechat` package name
+- ❌ `Namu\WireChat` namespace
+- ❌ `Chatable` trait (use `InteractsWithWireChat`)
+- ❌ Legacy accessor methods without `wirechat` prefix
+- ❌ `uuids` config key (use `uses_uuid_for_conversations`)
+- ❌ `attachments.*` config keys (use `storage.*`)
+
+## Troubleshooting
+
+If you encounter issues during migration, see the [Troubleshooting Guide](/resources/troubleshooting) for common problems and solutions.

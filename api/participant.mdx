@@ -1,0 +1,452 @@
+---
+title: Participant
+description: Model representing conversation participants in WireChat
+---
+
+The `Participant` model represents a user's participation in a conversation. It handles roles, permissions, read receipts, and user-specific conversation state.
+
+## Namespace
+
+```php
+Wirechat\Wirechat\Models\Participant
+```
+
+## Properties
+
+<ParamField body="id" type="int">
+  Unique identifier for the participant
+</ParamField>
+
+<ParamField body="conversation_id" type="int">
+  ID of the conversation
+</ParamField>
+
+<ParamField body="participantable_id" type="int">
+  ID of the underlying user model
+</ParamField>
+
+<ParamField body="participantable_type" type="string">
+  Class name of the user model (polymorphic)
+</ParamField>
+
+<ParamField body="role" type="ParticipantRole">
+  Role in the conversation: OWNER, ADMIN, or PARTICIPANT
+</ParamField>
+
+<ParamField body="exited_at" type="Carbon|null">
+  Timestamp when participant exited the group
+</ParamField>
+
+<ParamField body="last_active_at" type="Carbon|null">
+  Last activity timestamp
+</ParamField>
+
+<ParamField body="conversation_cleared_at" type="Carbon|null">
+  Timestamp when participant cleared the conversation history
+</ParamField>
+
+<ParamField body="conversation_deleted_at" type="Carbon|null">
+  Timestamp when participant deleted the conversation
+</ParamField>
+
+<ParamField body="conversation_read_at" type="Carbon|null">
+  Timestamp when participant last read the conversation
+</ParamField>
+
+<ParamField body="created_at" type="Carbon|null">
+  Participant creation timestamp
+</ParamField>
+
+<ParamField body="updated_at" type="Carbon|null">
+  Last update timestamp
+</ParamField>
+
+## Relationships
+
+### participantable()
+
+Get the underlying user model.
+
+```php
+public function participantable(): MorphTo
+```
+
+<ResponseField name="return" type="MorphTo">
+  Polymorphic relationship to the user model
+</ResponseField>
+
+**Example:**
+```php
+$participant = Participant::find(1);
+$user = $participant->participantable;
+echo $user->name; // Access user properties
+```
+
+### conversation()
+
+Get the conversation this participant belongs to.
+
+```php
+public function conversation(): BelongsTo
+```
+
+<ResponseField name="return" type="BelongsTo">
+  Relationship to Conversation model
+</ResponseField>
+
+### messages()
+
+Get all messages sent by this participant.
+
+```php
+public function messages(): HasMany
+```
+
+<ResponseField name="return" type="HasMany">
+  Relationship to Message models
+</ResponseField>
+
+### latestMessage()
+
+Get the most recent message from this participant.
+
+```php
+public function latestMessage(): HasOne
+```
+
+<ResponseField name="return" type="HasOne">
+  Relationship to the latest Message
+</ResponseField>
+
+## Role Methods
+
+### isAdmin()
+
+Check if the participant is an admin (ADMIN or OWNER role).
+
+```php
+public function isAdmin(): bool
+```
+
+<ResponseField name="return" type="bool">
+  True if participant has ADMIN or OWNER role
+</ResponseField>
+
+**Example:**
+```php
+if ($participant->isAdmin()) {
+    // Allow admin actions
+    echo "User has admin privileges";
+}
+```
+
+### isOwner()
+
+Check if the participant is the owner.
+
+```php
+public function isOwner(): bool
+```
+
+<ResponseField name="return" type="bool">
+  True if participant has OWNER role
+</ResponseField>
+
+**Example:**
+```php
+if ($participant->isOwner()) {
+    // Allow owner-only actions
+    echo "User is the group owner";
+}
+```
+
+## Conversation State
+
+### exitConversation()
+
+Mark the participant as having exited the conversation.
+
+```php
+public function exitConversation(): bool
+```
+
+<ResponseField name="return" type="bool">
+  True if successfully exited, false if already exited
+</ResponseField>
+
+**Example:**
+```php
+$participant->exitConversation();
+// User is now marked as exited from the group
+```
+
+<Expandable title="Restrictions">
+  - Cannot exit private conversations (1-on-1 chats)
+  - Owners cannot exit their own group
+  - Role is automatically downgraded to PARTICIPANT when exiting
+</Expandable>
+
+### hasExited()
+
+Check if the participant has exited the conversation.
+
+```php
+public function hasExited(): bool
+```
+
+<ResponseField name="return" type="bool">
+  True if the participant has exited
+</ResponseField>
+
+### hasDeletedConversation()
+
+Check if the participant has deleted the conversation.
+
+```php
+public function hasDeletedConversation(bool $checkDeletionExpired = false): bool
+```
+
+<ParamField body="checkDeletionExpired" type="bool" default="false">
+  If true, checks if deletion is still valid (conversation hasn't been updated since deletion)
+</ParamField>
+
+<ResponseField name="return" type="bool">
+  True if conversation is deleted (and valid if checking expiration)
+</ResponseField>
+
+**Example:**
+```php
+// Simple check
+if ($participant->hasDeletedConversation()) {
+    echo "Conversation is marked as deleted";
+}
+
+// Check if deletion is still valid
+if ($participant->hasDeletedConversation(checkDeletionExpired: true)) {
+    echo "Conversation is deleted and no new activity";
+}
+```
+
+## Admin Actions
+
+### isRemovedByAdmin()
+
+Check if the participant was removed by an admin.
+
+```php
+public function isRemovedByAdmin(): bool
+```
+
+<ResponseField name="return" type="bool">
+  True if removed by admin
+</ResponseField>
+
+### removeByAdmin()
+
+Remove the participant from the conversation as an admin action.
+
+```php
+public function removeByAdmin(Model|Authenticatable $admin): void
+```
+
+<ParamField body="admin" type="Model|Authenticatable" required>
+  The admin user performing the removal
+</ParamField>
+
+**Example:**
+```php
+$adminUser = auth()->user();
+$participant->removeByAdmin($adminUser);
+// Participant is removed and action is logged
+```
+
+<Expandable title="Behavior">
+  - Creates a REMOVED_BY_ADMIN action
+  - Downgrades role to PARTICIPANT
+  - Prevents duplicate removal actions
+  - Admin must be a participant in the conversation
+</Expandable>
+
+## Query Scopes
+
+### whereParticipantable()
+
+Scope to filter by the underlying user model.
+
+```php
+public function scopeWhereParticipantable(Builder $query, Model|Authenticatable $model): void
+```
+
+<ParamField body="query" type="Builder" required>
+  The query builder instance
+</ParamField>
+
+<ParamField body="model" type="Model|Authenticatable" required>
+  The user model to filter by
+</ParamField>
+
+**Example:**
+```php
+$userParticipants = Participant::whereParticipantable($user)->get();
+```
+
+### withExited()
+
+Include exited participants in the query (removes global scope).
+
+```php
+public function scopeWithExited(Builder $query): void
+```
+
+**Example:**
+```php
+// Get all participants including those who exited
+$allParticipants = Participant::withExited()->get();
+```
+
+### withoutParticipantable()
+
+Exclude a specific user from the query.
+
+```php
+public function scopeWithoutParticipantable($query, Model|Authenticatable $user): Builder
+```
+
+<ParamField body="query" type="Builder" required>
+  The query builder instance
+</ParamField>
+
+<ParamField body="user" type="Model|Authenticatable" required>
+  The user to exclude
+</ParamField>
+
+**Example:**
+```php
+// Get all participants except the current user
+$otherParticipants = $conversation->participants()
+    ->withoutParticipantable(auth()->user())
+    ->get();
+```
+
+## Example Usage
+
+<Tabs>
+  <Tab title="Basic Usage">
+    ```php
+    use Wirechat\Wirechat\Models\Participant;
+    use Wirechat\Wirechat\Enums\ParticipantRole;
+
+    // Get participant's user
+    $participant = Participant::find(1);
+    $user = $participant->participantable;
+    echo "Name: {$user->name}";
+
+    // Check role
+    if ($participant->isAdmin()) {
+        echo "Has admin privileges";
+    }
+
+    // Get conversation
+    $conversation = $participant->conversation;
+    echo "Conversation type: {$conversation->type->value}";
+    ```
+  </Tab>
+  
+  <Tab title="Role Management">
+    ```php
+    // Check roles
+    if ($participant->isOwner()) {
+        echo "This is the group owner";
+    }
+
+    if ($participant->isAdmin()) {
+        // Owner or Admin
+        echo "Can manage group settings";
+    }
+
+    // Update role
+    $participant->role = ParticipantRole::ADMIN;
+    $participant->save();
+    ```
+  </Tab>
+  
+  <Tab title="Conversation State">
+    ```php
+    // Mark conversation as read
+    $participant->conversation_read_at = now();
+    $participant->save();
+
+    // Clear conversation history
+    $participant->conversation_cleared_at = now();
+    $participant->save();
+
+    // Exit group
+    if ($conversation->isGroup()) {
+        $participant->exitConversation();
+    }
+
+    // Check if exited
+    if ($participant->hasExited()) {
+        echo "User has left the group";
+    }
+    ```
+  </Tab>
+  
+  <Tab title="Admin Actions">
+    ```php
+    // Remove a participant (admin action)
+    $admin = auth()->user();
+    $adminParticipant = $conversation->participant($admin);
+    
+    if ($adminParticipant->isAdmin()) {
+        $participant->removeByAdmin($admin);
+        echo "Participant removed";
+    }
+
+    // Check if removed
+    if ($participant->isRemovedByAdmin()) {
+        echo "This user was removed by an admin";
+    }
+    ```
+  </Tab>
+  
+  <Tab title="Queries">
+    ```php
+    // Get all participants for a user
+    $participants = Participant::whereParticipantable($user)->get();
+
+    // Get participants except current user
+    $others = $conversation->participants()
+        ->withoutParticipantable(auth()->user())
+        ->get();
+
+    // Include exited participants
+    $all = $conversation->participants()
+        ->withExited()
+        ->get();
+
+    // Get participant's messages
+    $messages = $participant->messages;
+    $latestMessage = $participant->latestMessage;
+    ```
+  </Tab>
+</Tabs>
+
+## Global Scopes
+
+<Expandable title="withoutExited">
+  Automatically excludes participants who have exited the conversation. Use `withExited()` scope to include them.
+</Expandable>
+
+<Expandable title="WithoutRemovedActionScope">
+  Excludes participants who have been removed by an admin.
+</Expandable>
+
+## Notes
+
+- Participants are polymorphic - they can relate to any user model
+- The `withoutExited` global scope filters out exited participants by default
+- Deleting a participant also deletes associated actions
+- Role is automatically downgraded when exiting or being removed
+- Owner role has all admin permissions plus owner-specific actions
+- Last activity and read timestamps enable read receipts and online status

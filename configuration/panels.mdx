@@ -1,0 +1,348 @@
+---
+title: Panel Configuration
+description: Complete reference for all WireChat panel configuration options
+---
+
+## Overview
+
+Panels in WireChat are configured using a fluent API through the `Panel` class. Each configuration method returns the panel instance, allowing you to chain multiple configurations.
+
+## Basic Configuration
+
+### Identity & Routing
+
+<ParamField path="id" type="string" required>
+  Unique identifier for the panel. Must be set before registration.
+  
+  ```php
+  $panel->id('admin')
+  ```
+  
+  <Warning>The panel ID cannot be changed after initial registration.</Warning>
+</ParamField>
+
+<ParamField path="path" type="string" required>
+  Base URL path for the panel's routes.
+  
+  ```php
+  $panel->path('admin') // Accessible at /admin
+  ```
+</ParamField>
+
+<ParamField path="default" type="bool|Closure" default="false">
+  Marks this panel as the default panel.
+  
+  ```php
+  $panel->default()
+  $panel->default(fn() => config('app.env') === 'production')
+  ```
+</ParamField>
+
+### Authentication
+
+<ParamField path="guards" type="array|Closure" default="['web']">
+  Authentication guards used to authenticate users.
+  
+  ```php
+  $panel->guards(['web'])
+  $panel->guards(['web', 'admin'])
+  ```
+</ParamField>
+
+<ParamField path="middleware" type="array" default="['auth']">
+  Middleware applied to all panel routes. New middleware is merged with existing.
+  
+  ```php
+  $panel->middleware(['auth', 'verified'])
+  ```
+</ParamField>
+
+## Layout & Views
+
+<ParamField path="layout" type="string|Closure|null" default="'wirechat::layouts.app'">
+  Custom layout view for the panel.
+  
+  ```php
+  $panel->layout('layouts.chat')
+  $panel->layout(fn() => auth()->user()->isAdmin() ? 'layouts.admin' : 'layouts.app')
+  ```
+</ParamField>
+
+<ParamField path="homeUrl" type="string|Closure|null">
+  Home URL for navigation purposes.
+  
+  ```php
+  $panel->homeUrl('/dashboard')
+  $panel->homeUrl(fn() => route('dashboard'))
+  ```
+</ParamField>
+
+## Route Configuration
+
+<ParamField path="registerRoutes" type="bool|Closure" default="true">
+  Enable or disable automatic route registration.
+  
+  ```php
+  $panel->registerRoutes(false)
+  ```
+</ParamField>
+
+<ParamField path="routes" type="Closure">
+  Register custom routes for the panel.
+  
+  ```php
+  $panel->routes(function ($panel) {
+      Route::get('/settings', [SettingsController::class, 'index']);
+      Route::post('/settings', [SettingsController::class, 'update']);
+  })
+  ```
+</ParamField>
+
+## Attachments
+
+Configure file and media attachment handling:
+
+<ParamField path="attachments" type="bool|Closure" default="false">
+  Enable all attachments (both files and media).
+  
+  ```php
+  $panel->attachments()
+  ```
+</ParamField>
+
+<ParamField path="fileAttachments" type="bool|Closure" default="false">
+  Enable file attachments specifically.
+  
+  ```php
+  $panel->fileAttachments()
+  ```
+</ParamField>
+
+<ParamField path="mediaAttachments" type="bool|Closure" default="false">
+  Enable media attachments (images, videos).
+  
+  ```php
+  $panel->mediaAttachments()
+  ```
+</ParamField>
+
+<ParamField path="maxUploads" type="int|Closure" default="10">
+  Maximum number of files that can be uploaded at once.
+  
+  ```php
+  $panel->maxUploads(5)
+  ```
+</ParamField>
+
+<ParamField path="mediaMimes" type="array|Closure" default="['png', 'jpg', 'jpeg', 'gif', 'mov', 'mp4']">
+  Allowed MIME types for media uploads.
+  
+  ```php
+  $panel->mediaMimes(['png', 'jpg', 'jpeg', 'webp'])
+  ```
+</ParamField>
+
+<ParamField path="mediaMaxUploadSize" type="int|Closure" default="12288">
+  Maximum upload size for media files in kilobytes (default: 12MB).
+  
+  ```php
+  $panel->mediaMaxUploadSize(20480) // 20MB
+  ```
+</ParamField>
+
+<ParamField path="fileMimes" type="array|Closure" default="['zip', 'rar', 'txt', 'pdf']">
+  Allowed MIME types for file uploads.
+  
+  ```php
+  $panel->fileMimes(['pdf', 'doc', 'docx', 'xls', 'xlsx'])
+  ```
+</ParamField>
+
+<ParamField path="fileMaxUploadSize" type="int|Closure" default="12288">
+  Maximum upload size for files in kilobytes (default: 12MB).
+  
+  ```php
+  $panel->fileMaxUploadSize(10240) // 10MB
+  ```
+</ParamField>
+
+### Attachment Example
+
+```php
+return $panel
+    ->id('admin')
+    ->path('admin')
+    ->attachments() // Enable all attachments
+    ->maxUploads(15)
+    ->mediaMimes(['png', 'jpg', 'jpeg', 'gif', 'webp'])
+    ->mediaMaxUploadSize(20480) // 20MB
+    ->fileMimes(['pdf', 'doc', 'docx', 'zip'])
+    ->fileMaxUploadSize(10240); // 10MB
+```
+
+## Broadcasting
+
+Configure real-time broadcasting for the panel:
+
+<ParamField path="broadcasting" type="bool|Closure" default="true">
+  Enable or disable broadcasting for the panel.
+  
+  ```php
+  $panel->broadcasting()
+  $panel->broadcasting(false)
+  ```
+</ParamField>
+
+<ParamField path="messagesQueue" type="string|Closure" default="'messages'">
+  Queue name for message broadcasts.
+  
+  ```php
+  $panel->messagesQueue('high-priority')
+  ```
+</ParamField>
+
+<ParamField path="eventsQueue" type="string|Closure" default="'default'">
+  Queue name for event broadcasts.
+  
+  ```php
+  $panel->eventsQueue('events')
+  ```
+</ParamField>
+
+## Colors
+
+Customize the panel's color scheme:
+
+<ParamField path="colors" type="array|Closure">
+  Register custom colors for the panel. Colors must include all shade values from 50 to 950.
+  
+  ```php
+  use Wirechat\Wirechat\Support\Color;
+  
+  $panel->colors([
+      'primary' => Color::Blue,
+      'secondary' => Color::Slate,
+  ])
+  ```
+  
+  See [Colors Configuration](/configuration/colors) for more details.
+</ParamField>
+
+## Notifications
+
+Configure web push notifications:
+
+<ParamField path="webPushNotifications" type="bool|Closure" default="false">
+  Enable web push notifications.
+  
+  ```php
+  $panel->webPushNotifications()
+  ```
+</ParamField>
+
+<ParamField path="serviceWorkerPath" type="string|Closure" default="asset('sw.js')">
+  Path to the service worker file.
+  
+  ```php
+  $panel->serviceWorkerPath(asset('custom-sw.js'))
+  ```
+</ParamField>
+
+## Complete Example
+
+Here's a comprehensive panel configuration:
+
+```php
+namespace App\Providers\Wirechat;
+
+use Wirechat\Wirechat\Panel;
+use Wirechat\Wirechat\PanelProvider;
+use Wirechat\Wirechat\Support\Color;
+
+class AdminPanelProvider extends PanelProvider
+{
+    public function panel(Panel $panel): Panel
+    {
+        return $panel
+            // Identity & Routing
+            ->id('admin')
+            ->path('admin')
+            ->default()
+            
+            // Authentication
+            ->guards(['web'])
+            ->middleware(['auth', 'verified'])
+            
+            // Layout
+            ->layout('layouts.admin')
+            ->homeUrl('/dashboard')
+            
+            // Attachments
+            ->attachments()
+            ->maxUploads(10)
+            ->mediaMimes(['png', 'jpg', 'jpeg', 'gif', 'webp'])
+            ->mediaMaxUploadSize(20480) // 20MB
+            ->fileMimes(['pdf', 'doc', 'docx', 'zip'])
+            ->fileMaxUploadSize(10240) // 10MB
+            
+            // Broadcasting
+            ->broadcasting()
+            ->messagesQueue('messages')
+            ->eventsQueue('default')
+            
+            // Colors
+            ->colors([
+                'primary' => Color::Blue,
+                'secondary' => Color::Slate,
+            ])
+            
+            // Notifications
+            ->webPushNotifications()
+            ->serviceWorkerPath(asset('sw.js'))
+            
+            // Custom Routes
+            ->routes(function ($panel) {
+                Route::get('/analytics', [AnalyticsController::class, 'index'])
+                    ->name('analytics');
+            });
+    }
+}
+```
+
+## Accessing Panel Configuration
+
+You can access panel configuration at runtime:
+
+```php
+use Wirechat\Wirechat\Facades\Wirechat;
+
+$panel = Wirechat::getPanel('admin');
+
+// Check configuration
+$hasBroadcasting = $panel->hasBroadcasting();
+$hasAttachments = $panel->hasAttachments();
+$guards = $panel->getGuards();
+$middleware = $panel->getMiddleware();
+
+// Get URLs
+$chatsUrl = $panel->chatsRoute();
+$chatUrl = $panel->chatRoute($conversationId);
+```
+
+## Dynamic Configuration
+
+Many configuration methods accept closures for dynamic values:
+
+```php
+return $panel
+    ->id('admin')
+    ->path('admin')
+    ->guards(fn() => auth()->user()?->isAdmin() ? ['admin'] : ['web'])
+    ->layout(fn() => auth()->user()?->theme === 'dark' ? 'layouts.dark' : 'layouts.light')
+    ->broadcasting(fn() => config('broadcasting.enabled'))
+    ->maxUploads(fn() => auth()->user()?->isPremium() ? 50 : 10);
+```
+
+<Note>
+Closures are evaluated when the configuration value is accessed, allowing for context-aware configuration.
+</Note>

@@ -1,0 +1,445 @@
+---
+title: 'Chats Component'
+description: 'Livewire component for displaying and managing conversation lists'
+icon: 'list'
+---
+
+## Overview
+
+The `Chats` component is a Livewire component that displays a list of conversations for the authenticated user. It supports search, pagination, real-time updates, and conversation filtering.
+
+## Component Location
+
+```php
+Wirechat\Wirechat\Livewire\Chats\Chats
+```
+
+## Usage
+
+### Blade
+
+```blade
+<livewire:wirechat.chats />
+```
+
+### With Custom Configuration
+
+```blade
+<livewire:wirechat.chats 
+    :heading="'My Chats'"
+    :createChatAction="true"
+    :chatsSearch="true" />
+```
+
+## Properties
+
+<ParamField path="conversations" type="Collection">
+  Collection of conversation instances
+</ParamField>
+
+<ParamField path="search" type="string">
+  The search query string
+</ParamField>
+
+<ParamField path="selectedConversationId" type="mixed">
+  ID of the currently selected conversation
+</ParamField>
+
+<ParamField path="page" type="int">
+  Current pagination page (default: 1)
+</ParamField>
+
+<ParamField path="canLoadMore" type="bool">
+  Whether more conversations can be loaded
+</ParamField>
+
+<ParamField path="heading" type="string|null">
+  Custom heading for the chats list
+</ParamField>
+
+<ParamField path="createChatAction" type="bool|null">
+  Show/hide create chat button
+</ParamField>
+
+<ParamField path="chatsSearch" type="bool|null">
+  Enable/disable search functionality
+</ParamField>
+
+<ParamField path="redirectToHomeAction" type="bool|null">
+  Show/hide home redirect button
+</ParamField>
+
+## Public Methods
+
+### loadMore()
+
+Loads the next page of conversations.
+
+```php
+public function loadMore(): void
+```
+
+**Example:**
+```blade
+@if($canLoadMore)
+    <button wire:click="loadMore">Load More</button>
+@endif
+```
+
+### hardRefresh()
+
+Forces a complete refresh of the conversation list.
+
+```php
+public function hardRefresh(): void
+```
+
+**Example:**
+```blade
+<button wire:click="hardRefresh">Refresh Chats</button>
+```
+
+### refreshChats()
+
+Refreshes the conversation list (event listener).
+
+```php
+#[On('refresh-chats')]
+public function refreshChats(): void
+```
+
+**Dispatch from another component:**
+```php
+$this->dispatch('refresh-chats');
+```
+
+### chatDeleted()
+
+Removes a deleted conversation from the list.
+
+<ParamField path="conversationId" type="mixed" required>
+  The ID of the deleted conversation
+</ParamField>
+
+```php
+#[On('chat-deleted')]
+public function chatDeleted($conversationId): void
+```
+
+**Dispatch from Chat component:**
+```php
+$this->dispatch('chat-deleted', conversationId: $conversation->id)->to(Chats::class);
+```
+
+### chatExited()
+
+Removes an exited conversation from the list.
+
+<ParamField path="conversationId" type="mixed" required>
+  The ID of the exited conversation
+</ParamField>
+
+```php
+#[On('chat-exited')]
+public function chatExited($conversationId): void
+```
+
+## Real-time Events
+
+The component listens for broadcast events:
+
+### NotifyParticipant
+
+Triggered when a message is sent in a conversation the user participates in.
+
+**Channel:** `{panelId}.participant.{encodedType}.{userId}`
+
+**Handler:** `refreshComponent()`
+
+```php
+public function refreshComponent($event): void
+{
+    if ($event['message']['conversation_id'] != $this->selectedConversationId) {
+        $this->dispatch('refresh')->self();
+    }
+}
+```
+
+<Note>
+The component only refreshes if the message is from a conversation that's not currently selected.
+</Note>
+
+## Search Functionality
+
+The component supports searching across multiple fields:
+
+### Searchable Fields
+
+**User fields:** Configurable via panel (default: `name`, `email`)
+
+**Group fields:** `name`, `description`
+
+### Search Example
+
+```blade
+@if($chatsSearch)
+    <input type="text" 
+           wire:model.live.debounce.300ms="search" 
+           placeholder="Search conversations...">
+@endif
+```
+
+### Configure Searchable Attributes
+
+```php
+$panel->searchableAttributes(['name', 'email', 'username']);
+```
+
+### Search Behavior
+
+```php
+protected function applySearchConditions($query)
+{
+    $searchableFields = $this->panel()->getSearchableAttributes();
+    $groupSearchableFields = ['name', 'description'];
+    
+    return $query->withDeleted()->where(function ($query) use ($searchableFields, $groupSearchableFields) {
+        // Search in user fields
+        $query->whereHas('participants', function ($subquery) use ($searchableFields) {
+            $subquery->whereHas('participantable', function ($query2) use ($searchableFields) {
+                foreach ($searchableFields as $field) {
+                    $query2->orWhere($field, 'LIKE', '%'.$this->search.'%');
+                }
+            });
+        });
+        
+        // Search in group fields
+        $query->orWhereHas('group', function ($groupQuery) use ($groupSearchableFields) {
+            foreach ($groupSearchableFields as $field) {
+                $groupQuery->orWhere($field, 'LIKE', '%'.$this->search.'%');
+            }
+        });
+    });
+}
+```
+
+## Pagination
+
+Conversations are loaded 10 at a time with infinite scroll support.
+
+```php
+protected function loadConversations(): void
+{
+    $perPage = 10;
+    $offset = ($this->page - 1) * $perPage;
+    
+    $additionalConversations = $this->auth->conversations()
+        ->when(trim($this->search ?? '') != '', fn ($query) => $this->applySearchConditions($query))
+        ->when(trim($this->search ?? '') == '', function ($query) {
+            return $query->withoutDeleted()->withoutBlanks();
+        })
+        ->latest('updated_at')
+        ->skip($offset)
+        ->take($perPage)
+        ->get();
+    
+    $this->canLoadMore = $additionalConversations->count() === $perPage;
+}
+```
+
+## Conversation Filtering
+
+By default, the component filters out:
+
+- Deleted conversations (unless searching)
+- Blank conversations (conversations without messages)
+
+### Custom Filtering
+
+```blade
+<livewire:wirechat.chats wire:key="active-chats" />
+```
+
+## Eager Loading
+
+The component efficiently loads related data:
+
+```php
+$conversations = $this->auth->conversations()
+    ->with([
+        'lastMessage.participant.participantable',
+        'group.cover' => fn ($query) => $query->select('id', 'url', 'attachable_type', 'attachable_id', 'file_path'),
+    ])
+    ->get();
+```
+
+### Hydration
+
+Relationships are re-loaded during Livewire hydration:
+
+```php
+public function hydrateConversations(): void
+{
+    $this->conversations->map(function ($conversation) {
+        if (!$conversation->isGroup()) {
+            $participants = $conversation->participants()
+                ->with(['participantable', 'actions'])
+                ->get();
+            
+            $conversation->setRelation('participants', $participants);
+            $conversation->auth_participant = $conversation->participant($this->auth);
+            $conversation->peer_participant = $conversation->peerParticipant($this->auth);
+        }
+        
+        return $conversation->loadMissing(['lastMessage', 'group.cover']);
+    });
+}
+```
+
+## Component Configuration
+
+You can customize the component appearance and behavior:
+
+### Via Properties
+
+```blade
+<livewire:wirechat.chats 
+    :heading="'Team Conversations'"
+    :createChatAction="false"
+    :chatsSearch="true"
+    :redirectToHomeAction="false" />
+```
+
+### Via Panel
+
+```php
+$panel
+    ->heading('My Chats')
+    ->createChatAction(true)
+    ->chatsSearch(true)
+    ->redirectToHomeAction(true)
+    ->searchableAttributes(['name', 'email']);
+```
+
+<Note>
+Component properties override panel settings. If a property is not set (null), it falls back to the panel configuration.
+</Note>
+
+## Complete Example
+
+```blade
+<div class="chats-container">
+    <!-- Header -->
+    <div class="chats-header">
+        @if($heading)
+            <h2>{{ $heading }}</h2>
+        @endif
+        
+        @if($redirectToHomeAction)
+            <a href="{{ route('home') }}">Home</a>
+        @endif
+        
+        @if($createChatAction)
+            <button wire:click="$dispatch('open-chat-creator')">New Chat</button>
+        @endif
+    </div>
+    
+    <!-- Search -->
+    @if($chatsSearch)
+        <div class="search-box">
+            <input type="text" 
+                   wire:model.live.debounce.300ms="search" 
+                   placeholder="Search conversations...">
+        </div>
+    @endif
+    
+    <!-- Conversations List -->
+    <div class="conversations-list">
+        @forelse($conversations as $conversation)
+            <a href="{{ route('chat', $conversation) }}"
+               class="conversation-item {{ $selectedConversationId == $conversation->id ? 'active' : '' }}">
+               
+                <!-- Avatar -->
+                <div class="avatar">
+                    @if($conversation->isGroup())
+                        <img src="{{ $conversation->group->cover_url }}" alt="">
+                    @else
+                        <img src="{{ $conversation->peer_participant->participantable->wirechat_avatar_url }}" alt="">
+                    @endif
+                </div>
+                
+                <!-- Info -->
+                <div class="info">
+                    <h4>
+                        @if($conversation->isGroup())
+                            {{ $conversation->group->name }}
+                        @else
+                            {{ $conversation->peer_participant->participantable->wirechat_name }}
+                        @endif
+                    </h4>
+                    
+                    @if($conversation->lastMessage)
+                        <p>{{ Str::limit($conversation->lastMessage->body, 50) }}</p>
+                    @endif
+                </div>
+                
+                <!-- Unread Badge -->
+                @if($unread = $conversation->getUnreadCountFor(auth()->user()))
+                    <span class="unread-badge">{{ $unread }}</span>
+                @endif
+            </a>
+        @empty
+            <div class="empty-state">
+                @if($search)
+                    <p>No conversations found matching "{{ $search }}"</p>
+                @else
+                    <p>No conversations yet. Start a new chat!</p>
+                @endif
+            </div>
+        @endforelse
+        
+        <!-- Load More -->
+        @if($canLoadMore)
+            <div wire:intersect="loadMore" class="load-more">
+                Loading more conversations...
+            </div>
+        @endif
+    </div>
+    
+    <!-- Refresh Button -->
+    <button wire:click="hardRefresh" class="refresh-button">
+        Refresh
+    </button>
+</div>
+```
+
+## Infinite Scroll Example
+
+Using Livewire's `wire:intersect` for automatic loading:
+
+```blade
+@if($canLoadMore)
+    <div wire:intersect="loadMore" class="load-trigger">
+        <div class="spinner">Loading...</div>
+    </div>
+@endif
+```
+
+## Responsive Behavior
+
+The component adapts to widget mode:
+
+```php
+protected function initialize(): void
+{
+    $this->redirectToHomeAction = $this->widget 
+        ? false 
+        : $this->panel()?->hasRedirectToHomeAction();
+}
+```
+
+## Related
+
+- [Chat Component](/api/components/chat) - Individual conversation view
+- [Widget Component](/api/components/widget) - Modal chat interface
+- [InteractsWithWirechat Trait](/api/interacts-with-wirechat) - User methods

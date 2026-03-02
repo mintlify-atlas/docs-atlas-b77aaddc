@@ -1,0 +1,503 @@
+---
+title: Participants
+description: Understanding participants in WireChat - the users within conversations
+---
+
+## Overview
+
+Participants represent users within a conversation. They bridge the gap between your application's user models and WireChat conversations, managing roles, permissions, and conversation-specific user data.
+
+## Participant Roles
+
+WireChat defines three participant roles:
+
+```php
+use Wirechat\Wirechat\Enums\ParticipantRole;
+
+enum ParticipantRole: string
+{
+    case OWNER = 'owner';
+    case ADMIN = 'admin';
+    case PARTICIPANT = 'participant';
+}
+```
+
+### Owner
+
+The creator and primary administrator of a conversation:
+
+```php
+$participant = $conversation->addParticipant(
+    $user,
+    ParticipantRole::OWNER
+);
+
+if ($participant->isOwner()) {
+    // Full control over the conversation
+}
+```
+
+<Info>
+  Owners cannot exit group conversations. The ownership must be transferred first.
+</Info>
+
+### Admin
+
+Elevated permissions for managing the conversation:
+
+```php
+$participant = $conversation->addParticipant(
+    $user,
+    ParticipantRole::ADMIN
+);
+
+if ($participant->isAdmin()) {
+    // Can moderate and manage conversation
+}
+```
+
+<Note>
+  The `isAdmin()` method returns `true` for both OWNER and ADMIN roles, as owners have all admin permissions.
+</Note>
+
+### Participant
+
+Standard conversation member:
+
+```php
+$participant = $conversation->addParticipant(
+    $user,
+    ParticipantRole::PARTICIPANT
+);
+```
+
+## Database Structure
+
+Participants store conversation-specific user data:
+
+```php
+/**
+ * @property int $id
+ * @property int $conversation_id
+ * @property ParticipantRole $role
+ * @property int $participantable_id
+ * @property string $participantable_type
+ * @property \Illuminate\Support\Carbon|null $exited_at
+ * @property \Illuminate\Support\Carbon|null $last_active_at
+ * @property \Illuminate\Support\Carbon|null $conversation_cleared_at
+ * @property \Illuminate\Support\Carbon|null $conversation_deleted_at
+ * @property \Illuminate\Support\Carbon|null $conversation_read_at
+ * @property \Illuminate\Support\Carbon|null $created_at
+ * @property \Illuminate\Support\Carbon|null $updated_at
+ */
+```
+
+## Polymorphic Relationship
+
+Participants use a polymorphic relationship to link to any user model:
+
+```php
+// The user who is participating
+$user = $participant->participantable;
+
+// Can work with any model
+$participant->participantable_type; // "App\\Models\\User"
+$participant->participantable_id;   // 123
+```
+
+## Relationships
+
+### Conversation
+
+Access the conversation a participant belongs to:
+
+```php
+$conversation = $participant->conversation;
+```
+
+### Participantable (User)
+
+Access the underlying user model:
+
+```php
+$user = $participant->participantable;
+echo $user->name;
+echo $user->email;
+```
+
+### Messages
+
+Get all messages sent by a participant:
+
+```php
+// All messages
+$messages = $participant->messages;
+
+// Latest message
+$latestMessage = $participant->latestMessage;
+```
+
+## Role Checking
+
+Check participant permissions:
+
+```php
+// Check if owner
+if ($participant->isOwner()) {
+    echo "Participant is the conversation owner";
+}
+
+// Check if admin (includes owners)
+if ($participant->isAdmin()) {
+    echo "Participant has admin permissions";
+}
+```
+
+From the source code:
+
+```php
+public function isAdmin(): bool
+{
+    return $this->role === ParticipantRole::OWNER || 
+           $this->role === ParticipantRole::ADMIN;
+}
+
+public function isOwner(): bool
+{
+    return $this->role === ParticipantRole::OWNER;
+}
+```
+
+## Exiting Conversations
+
+Participants can exit group conversations:
+
+```php
+$participant->exitConversation();
+
+// Check if exited
+if ($participant->hasExited()) {
+    echo "Participant has left the conversation";
+}
+```
+
+<Warning>
+  Owners cannot exit conversations. Private conversations cannot be exited (users should delete them instead).
+</Warning>
+
+The exit logic from the source:
+
+```php
+public function exitConversation(): bool
+{
+    // Make sure conversation is not private
+    abort_if(
+        $this->conversation->isPrivate(),
+        403,
+        'Participant cannot exit a private conversation'
+    );
+
+    // Make sure owner if group cannot be removed from chat
+    abort_if(
+        $this->isOwner(),
+        403,
+        'Owner cannot exit conversation'
+    );
+
+    // Update Role to Participant
+    $this->role = ParticipantRole::PARTICIPANT;
+    $this->save();
+
+    if (!$this->hasExited()) {
+        $this->exited_at = now();
+        return $this->save();
+    }
+
+    return false;
+}
+```
+
+## Admin Removal
+
+Admins can remove participants from conversations:
+
+```php
+use Wirechat\Wirechat\Enums\Actions;
+
+// Remove a participant
+$participant->removeByAdmin($adminUser);
+
+// Check if removed by admin
+if ($participant->isRemovedByAdmin()) {
+    echo "Participant was removed by an administrator";
+}
+```
+
+The removal creates an action record:
+
+```php
+public function removeByAdmin(Model|Authenticatable $admin): void
+{
+    $adminParticipant = $this->conversation->participant($admin);
+
+    if (!$adminParticipant) {
+        return;
+    }
+
+    Action::create([
+        'actionable_id' => $this->getKey(),
+        'actionable_type' => $this->getMorphClass(),
+        'actor_id' => $adminParticipant->getKey(),
+        'actor_type' => $adminParticipant->getMorphClass(),
+        'type' => Actions::REMOVED_BY_ADMIN,
+    ]);
+
+    // Downgrade role to normal participant
+    $this->role = ParticipantRole::PARTICIPANT;
+    $this->save();
+}
+```
+
+## Conversation State Timestamps
+
+Participants track several conversation-specific timestamps:
+
+### conversation_read_at
+
+When the participant last read the conversation:
+
+```php
+// Mark as read
+$conversation->markAsRead($user);
+
+// The participant's timestamp is updated
+echo $participant->conversation_read_at; // "2024-01-15 10:30:00"
+```
+
+### conversation_cleared_at
+
+When the participant cleared their conversation history:
+
+```php
+$conversation->clearFor($user);
+
+// The participant's timestamp is updated
+echo $participant->conversation_cleared_at; // "2024-01-15 11:00:00"
+```
+
+### conversation_deleted_at
+
+When the participant deleted the conversation:
+
+```php
+$conversation->deleteFor($user);
+
+// Check if deleted
+if ($participant->hasDeletedConversation(checkDeletionExpired: true)) {
+    echo "Participant has deleted this conversation";
+}
+```
+
+### last_active_at
+
+Track when the participant was last active:
+
+```php
+$participant->update(['last_active_at' => now()]);
+```
+
+## Conversation Deletion State
+
+Check if a participant has deleted a conversation:
+
+```php
+// Simple check
+if ($participant->hasDeletedConversation()) {
+    echo "Conversation is marked as deleted";
+}
+
+// Check if deletion is still valid (not expired by new messages)
+if ($participant->hasDeletedConversation(checkDeletionExpired: true)) {
+    echo "Conversation is deleted and no new messages have arrived";
+}
+```
+
+From the source code:
+
+```php
+public function hasDeletedConversation(bool $checkDeletionExpired = false): bool
+{
+    if ($this->conversation_deleted_at === null) {
+        return false;
+    }
+
+    $this->loadMissing('conversation');
+    $conversation = $this->conversation;
+
+    // Expired conversation means hasDeletedConversation should return FALSE
+    if ($checkDeletionExpired) {
+        // Check if the deletion timestamp is older than the last update
+        return $conversation->updated_at > $this->conversation_deleted_at 
+            ? false 
+            : true;
+    }
+
+    return true;
+}
+```
+
+## Query Scopes
+
+### whereParticipantable
+
+Find participants for a specific user:
+
+```php
+$participants = Participant::whereParticipantable($user)->get();
+```
+
+Implementation:
+
+```php
+public function scopeWhereParticipantable(Builder $query, Model|Authenticatable $model): void
+{
+    $query->where('participantable_id', $model->getKey())
+        ->where('participantable_type', $model->getMorphClass());
+}
+```
+
+### withExited
+
+Include participants who have exited:
+
+```php
+$allParticipants = Participant::withExited()->get();
+```
+
+### withoutParticipantable
+
+Exclude a specific user from results:
+
+```php
+$otherParticipants = $conversation->participants()
+    ->withoutParticipantable($currentUser)
+    ->get();
+```
+
+## Global Scopes
+
+Participants have two global scopes applied automatically:
+
+### withoutExited
+
+By default, exited participants are hidden:
+
+```php
+protected static function booted()
+{
+    static::addGlobalScope('withoutExited', function ($query) {
+        $query->whereNull('exited_at');
+    });
+}
+```
+
+### WithoutRemovedActionScope
+
+Hides participants removed by admins:
+
+```php
+static::addGlobalScope(WithoutRemovedActionScope::class);
+```
+
+## Cascade Deletion
+
+When a participant is deleted, their actions are also deleted:
+
+```php
+static::deleted(function ($participant) {
+    DB::transaction(function () use ($participant) {
+        $participant->actions()->delete();
+    });
+});
+```
+
+## Best Practices
+
+<Tip>
+  - Always check participant roles before performing privileged actions
+  - Use scopes to filter participants efficiently
+  - Track `last_active_at` for presence indicators
+  - Handle exited participants gracefully in your UI
+  - Use the polymorphic relationship to support multiple user types
+  - Check deletion state with `checkDeletionExpired` to handle new messages
+</Tip>
+
+## Common Patterns
+
+### Check if User Can Send Messages
+
+```php
+function canSendMessage($user, $conversation): bool
+{
+    $participant = $conversation->participant($user);
+    
+    if (!$participant) {
+        return false;
+    }
+    
+    if ($participant->hasExited()) {
+        return false;
+    }
+    
+    if ($participant->isRemovedByAdmin()) {
+        return false;
+    }
+    
+    if ($conversation->isGroup()) {
+        $group = $conversation->group;
+        if (!$group->allowsMembersToSendMessages() && !$participant->isAdmin()) {
+            return false;
+        }
+    }
+    
+    return true;
+}
+```
+
+### Get Active Participants
+
+```php
+$activeParticipants = $conversation->participants()
+    ->whereNotNull('last_active_at')
+    ->where('last_active_at', '>', now()->subMinutes(5))
+    ->get();
+```
+
+### Transfer Ownership
+
+```php
+function transferOwnership($conversation, $newOwner)
+{
+    $oldOwnerParticipant = $conversation->participants()
+        ->where('role', ParticipantRole::OWNER)
+        ->first();
+    
+    $newOwnerParticipant = $conversation->participant($newOwner);
+    
+    DB::transaction(function () use ($oldOwnerParticipant, $newOwnerParticipant) {
+        $oldOwnerParticipant->update(['role' => ParticipantRole::ADMIN]);
+        $newOwnerParticipant->update(['role' => ParticipantRole::OWNER]);
+    });
+}
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Messages" icon="message" href="/concepts/messages">
+    Learn how participants send messages
+  </Card>
+  <Card title="Groups" icon="users" href="/concepts/groups">
+    Understand group-specific participant features
+  </Card>
+</CardGroup>

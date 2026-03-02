@@ -1,0 +1,361 @@
+---
+title: Group
+description: Model for group conversation configuration in WireChat
+---
+
+The `Group` model stores configuration and metadata for group conversations. It includes settings for permissions, appearance, and group information.
+
+## Namespace
+
+```php
+Wirechat\Wirechat\Models\Group
+```
+
+## Properties
+
+<ParamField body="id" type="int">
+  Unique identifier for the group
+</ParamField>
+
+<ParamField body="conversation_id" type="int">
+  ID of the associated conversation
+</ParamField>
+
+<ParamField body="name" type="string|null">
+  Group name
+</ParamField>
+
+<ParamField body="description" type="string|null">
+  Group description
+</ParamField>
+
+<ParamField body="avatar_url" type="string|null">
+  URL to the group avatar image
+</ParamField>
+
+<ParamField body="type" type="GroupType">
+  Type of group (GROUP or CHANNEL)
+</ParamField>
+
+<ParamField body="allow_members_to_send_messages" type="bool">
+  Whether regular members can send messages
+</ParamField>
+
+<ParamField body="allow_members_to_add_others" type="bool">
+  Whether regular members can add other users
+</ParamField>
+
+<ParamField body="allow_members_to_edit_group_info" type="bool">
+  Whether regular members can edit group information
+</ParamField>
+
+<ParamField body="admins_must_approve_new_members" type="int">
+  When enabled, admins must approve new member requests
+</ParamField>
+
+<ParamField body="created_at" type="Carbon|null">
+  Group creation timestamp
+</ParamField>
+
+<ParamField body="updated_at" type="Carbon|null">
+  Last update timestamp
+</ParamField>
+
+## Relationships
+
+### conversation()
+
+Get the conversation associated with this group.
+
+```php
+public function conversation(): BelongsTo
+```
+
+<ResponseField name="return" type="BelongsTo">
+  Relationship to Conversation model
+</ResponseField>
+
+**Example:**
+```php
+$group = Group::find(1);
+$conversation = $group->conversation;
+$participants = $conversation->participants;
+```
+
+### cover()
+
+Get the cover image attachment for the group.
+
+```php
+public function cover(): MorphOne
+```
+
+<ResponseField name="return" type="MorphOne">
+  Polymorphic relationship to Attachment model
+</ResponseField>
+
+**Example:**
+```php
+if ($group->cover) {
+    echo "Cover URL: {$group->cover->url}";
+}
+```
+
+## Accessors
+
+### cover_url
+
+Get the URL of the group's cover image.
+
+```php
+public function getCoverUrlAttribute(): ?string
+```
+
+<ResponseField name="return" type="string|null">
+  The cover image URL or null if no cover exists
+</ResponseField>
+
+**Example:**
+```php
+$coverUrl = $group->cover_url;
+if ($coverUrl) {
+    echo '<img src="' . $coverUrl . '" alt="Group Cover">';
+}
+```
+
+## Ownership
+
+### isOwnedBy()
+
+Check if a user is the owner of the group.
+
+```php
+public function isOwnedBy(Model|Authenticatable $user): bool
+```
+
+<ParamField body="user" type="Model|Authenticatable" required>
+  The user to check ownership for
+</ParamField>
+
+<ResponseField name="return" type="bool">
+  True if the user is the group owner
+</ResponseField>
+
+**Example:**
+```php
+if ($group->isOwnedBy(auth()->user())) {
+    // Show owner-only controls
+    echo "You are the owner of this group";
+}
+```
+
+## Permission Methods
+
+### allowsMembersToSendMessages()
+
+Check if regular members are allowed to send messages.
+
+```php
+public function allowsMembersToSendMessages(): bool
+```
+
+<ResponseField name="return" type="bool">
+  True if members can send messages
+</ResponseField>
+
+**Example:**
+```php
+if (!$group->allowsMembersToSendMessages() && !$participant->isAdmin()) {
+    abort(403, 'Only admins can send messages in this group');
+}
+```
+
+### allowsMembersToAddOthers()
+
+Check if regular members are allowed to add other users.
+
+```php
+public function allowsMembersToAddOthers(): bool
+```
+
+<ResponseField name="return" type="bool">
+  True if members can add others
+</ResponseField>
+
+**Example:**
+```php
+if ($group->allowsMembersToAddOthers() || $participant->isAdmin()) {
+    // Show "Add Members" button
+}
+```
+
+### allowsMembersToEditGroupInfo()
+
+Check if regular members are allowed to edit group information.
+
+```php
+public function allowsMembersToEditGroupInfo(): bool
+```
+
+<ResponseField name="return" type="bool">
+  True if members can edit group info
+</ResponseField>
+
+**Example:**
+```php
+if ($group->allowsMembersToEditGroupInfo() || $participant->isAdmin()) {
+    // Show "Edit Group" button
+}
+```
+
+## Example Usage
+
+<Tabs>
+  <Tab title="Basic Usage">
+    ```php
+    use Wirechat\Wirechat\Models\Group;
+    use Wirechat\Wirechat\Enums\GroupType;
+
+    // Get group information
+    $group = Group::find(1);
+    echo "Name: {$group->name}";
+    echo "Description: {$group->description}";
+    echo "Type: {$group->type->value}";
+
+    // Get conversation
+    $conversation = $group->conversation;
+    $participantCount = $conversation->participants->count();
+    echo "Members: {$participantCount}";
+    ```
+  </Tab>
+  
+  <Tab title="Permissions">
+    ```php
+    $user = auth()->user();
+    $participant = $conversation->participant($user);
+
+    // Check if user can send messages
+    $canSend = $group->allowsMembersToSendMessages() 
+        || $participant->isAdmin();
+
+    // Check if user can add members
+    $canAdd = $group->allowsMembersToAddOthers() 
+        || $participant->isAdmin();
+
+    // Check if user can edit group
+    $canEdit = $group->allowsMembersToEditGroupInfo() 
+        || $participant->isAdmin();
+
+    // Owner always has all permissions
+    if ($group->isOwnedBy($user)) {
+        $canSend = $canAdd = $canEdit = true;
+    }
+    ```
+  </Tab>
+  
+  <Tab title="Creating a Group">
+    ```php
+    use Wirechat\Wirechat\Models\Conversation;
+    use Wirechat\Wirechat\Models\Group;
+    use Wirechat\Wirechat\Enums\ConversationType;
+    use Wirechat\Wirechat\Enums\ParticipantRole;
+
+    // Create conversation
+    $conversation = Conversation::create([
+        'type' => ConversationType::GROUP,
+    ]);
+
+    // Add owner participant
+    $participant = $conversation->addParticipant(
+        auth()->user(), 
+        ParticipantRole::OWNER
+    );
+
+    // Create group configuration
+    $group = Group::create([
+        'conversation_id' => $conversation->id,
+        'name' => 'My Group',
+        'description' => 'A great group chat',
+        'allow_members_to_send_messages' => true,
+        'allow_members_to_add_others' => true,
+        'allow_members_to_edit_group_info' => false,
+    ]);
+    ```
+  </Tab>
+  
+  <Tab title="Updating Group">
+    ```php
+    // Update group information
+    $group->update([
+        'name' => 'New Group Name',
+        'description' => 'Updated description',
+    ]);
+
+    // Change permissions
+    $group->allow_members_to_send_messages = false;
+    $group->allow_members_to_add_others = false;
+    $group->save();
+
+    // Upload and set cover image
+    $attachment = Attachment::create([
+        'attachable_type' => Group::class,
+        'attachable_id' => $group->id,
+        'file_path' => $filePath,
+        'file_name' => $fileName,
+        'mime_type' => $mimeType,
+    ]);
+
+    // Access cover URL
+    $coverUrl = $group->cover_url;
+    ```
+  </Tab>
+  
+  <Tab title="Permission Checks">
+    ```php
+    // Comprehensive permission checking
+    function canUserPerformAction(
+        Group $group, 
+        Participant $participant, 
+        string $action
+    ): bool {
+        // Owners and admins can do everything
+        if ($participant->isAdmin()) {
+            return true;
+        }
+
+        // Check specific permissions
+        return match($action) {
+            'send_message' => $group->allowsMembersToSendMessages(),
+            'add_member' => $group->allowsMembersToAddOthers(),
+            'edit_info' => $group->allowsMembersToEditGroupInfo(),
+            default => false,
+        };
+    }
+
+    // Usage
+    if (canUserPerformAction($group, $participant, 'send_message')) {
+        // Allow sending message
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Permission Matrix
+
+| Action | Owner | Admin | Member (if allowed) |
+|--------|-------|-------|---------------------|
+| Send Messages | ✓ | ✓ | Based on `allow_members_to_send_messages` |
+| Add Members | ✓ | ✓ | Based on `allow_members_to_add_others` |
+| Edit Group Info | ✓ | ✓ | Based on `allow_members_to_edit_group_info` |
+| Remove Members | ✓ | ✓ | ✗ |
+| Delete Group | ✓ | ✗ | ✗ |
+| Change Permissions | ✓ | ✗ | ✗ |
+
+## Notes
+
+- Group is only created for conversations with type `ConversationType::GROUP`
+- Private and self conversations do not have associated Group models
+- Deleting a group also deletes its cover attachment
+- All permission checks should consider both group settings and participant roles
+- The `type` field distinguishes between regular groups and channels (broadcast groups)
+- Avatar URL is stored separately from the cover image

@@ -1,0 +1,517 @@
+---
+title: 'Multiple Panels'
+description: 'Configure and manage multiple isolated chat panels'
+icon: 'table-columns'
+---
+
+## Overview
+
+WireChat supports multiple independent chat panels in the same application. Each panel can have its own configuration, authentication guards, middleware, routes, and styling.
+
+## Use Cases
+
+- **Multi-tenant applications** - Separate chat panels per tenant
+- **User & Admin chats** - Different panels for customers and staff
+- **Department isolation** - Sales, support, and internal communications
+- **Testing environments** - Separate staging and production panels
+
+## Panel Registry
+
+The `PanelRegistry` manages all registered panels and tracks the current active panel:
+
+```php src/PanelRegistry.php
+class PanelRegistry
+{
+    protected array $panels = [];
+    protected ?Panel $defaultPanel = null;
+    protected ?Panel $currentPanel = null;
+
+    public function register(Panel $panel): void
+    {
+        $id = $panel->getId();
+        
+        // Skip if already registered
+        if (isset($this->panels[$id])) {
+            return;
+        }
+        
+        $this->panels[$id] = $panel;
+        
+        if ($panel->isDefault()) {
+            $this->defaultPanel = $panel;
+        }
+        
+        $panel->register();
+    }
+}
+```
+
+<Note>
+  Each panel must have a unique ID. Attempting to register a duplicate panel ID will be silently skipped.
+</Note>
+
+## Creating Multiple Panels
+
+### Step 1: Create Panel Providers
+
+Create separate panel providers for each panel:
+
+```bash
+php artisan make:provider CustomerChatPanelProvider
+php artisan make:provider AdminChatPanelProvider
+```
+
+### Step 2: Configure Each Panel
+
+```php app/Providers/CustomerChatPanelProvider.php
+namespace App\Providers;
+
+use Wirechat\Wirechat\Panel;
+use Wirechat\Wirechat\PanelProvider;
+
+class CustomerChatPanelProvider extends PanelProvider
+{
+    public function panel(Panel $panel): Panel
+    {
+        return $panel
+            ->id('customer')
+            ->default()  // This is the default panel
+            ->path('chat')
+            ->authGuards(['web'])
+            ->middleware(['auth', 'verified'])
+            ->colors([
+                'primary' => '#3b82f6',
+            ]);
+    }
+}
+```
+
+```php app/Providers/AdminChatPanelProvider.php
+namespace App\Providers;
+
+use Wirechat\Wirechat\Panel;
+use Wirechat\Wirechat\PanelProvider;
+
+class AdminChatPanelProvider extends PanelProvider
+{
+    public function panel(Panel $panel): Panel
+    {
+        return $panel
+            ->id('admin')
+            ->path('admin/chat')
+            ->authGuards(['admin'])
+            ->middleware(['auth:admin', 'can:access-admin-chat'])
+            ->colors([
+                'primary' => '#dc2626',
+            ])
+            ->messagesQueue('admin-messages')
+            ->eventsQueue('admin-events');
+    }
+}
+```
+
+### Step 3: Register Providers
+
+```php config/app.php
+'providers' => [
+    // ...
+    App\Providers\CustomerChatPanelProvider::class,
+    App\Providers\AdminChatPanelProvider::class,
+],
+```
+
+## Default Panel
+
+One panel must be marked as default:
+
+```php
+return $panel
+    ->id('customer')
+    ->default();  // Mark as default
+```
+
+<Warning>
+  Only one panel can be marked as default. If multiple panels call `->default()`, an exception will be thrown.
+</Warning>
+
+### Accessing the Default Panel
+
+```php
+use Wirechat\Wirechat\Facades\Wirechat;
+
+$defaultPanel = Wirechat::getDefaultPanel();
+```
+
+## Accessing Panels
+
+### Get Panel by ID
+
+```php
+use Wirechat\Wirechat\Facades\Wirechat;
+
+$customerPanel = Wirechat::getPanel('customer');
+$adminPanel = Wirechat::getPanel('admin');
+```
+
+### Get Current Panel
+
+```php
+$currentPanel = Wirechat::getCurrentPanel();
+```
+
+### Get All Panels
+
+```php
+$panels = app(PanelRegistry::class)->all();
+
+foreach ($panels as $panel) {
+    echo $panel->getId();
+}
+```
+
+## Panel-Specific Configuration
+
+### Different Routes
+
+Each panel can have its own route prefix:
+
+```php
+// Customer panel: /chat
+$customerPanel->path('chat');
+
+// Admin panel: /admin/chat
+$adminPanel->path('admin/chat');
+```
+
+### Different Guards
+
+Use separate authentication guards:
+
+```php
+// Customer panel uses web guard
+$customerPanel->authGuards(['web']);
+
+// Admin panel uses admin guard
+$adminPanel->authGuards(['admin']);
+```
+
+### Different Middleware
+
+Apply panel-specific middleware:
+
+```php
+$customerPanel->middleware(['auth', 'verified']);
+
+$adminPanel->middleware(['auth:admin', 'can:access-admin-chat']);
+```
+
+### Different Colors
+
+Customize colors per panel:
+
+```php
+$customerPanel->colors([
+    'primary' => '#3b82f6',  // Blue for customers
+]);
+
+$adminPanel->colors([
+    'primary' => '#dc2626',  // Red for admins
+]);
+```
+
+## Broadcasting with Multiple Panels
+
+Each panel creates its own broadcast channels:
+
+```php routes/channels.php
+// Customer panel channels:
+// - customer.conversation.{id}
+// - customer.participant.{type}.{id}
+
+// Admin panel channels:
+// - admin.conversation.{id}
+// - admin.participant.{type}.{id}
+```
+
+### Panel-Specific Events
+
+When dispatching events, specify the panel:
+
+```php
+use Wirechat\Wirechat\Events\MessageCreated;
+
+// Dispatch to customer panel
+event(new MessageCreated($message, panel: 'customer'));
+
+// Dispatch to admin panel
+event(new MessageCreated($message, panel: 'admin'));
+```
+
+## InteractsWithPanel Trait
+
+WireChat uses the `InteractsWithPanel` trait to resolve panels:
+
+```php src/Traits/InteractsWithPanel.php
+trait InteractsWithPanel
+{
+    public ?string $panel;
+
+    public function resolvePanel(?string $panel = null): void
+    {
+        if (is_string($panel) && filled($panel)) {
+            $this->panel = Wirechat::getPanel($panel)->getId();
+        } else {
+            $this->panel = Wirechat::getDefaultPanel()->getId();
+        }
+
+        if (!$this->panel) {
+            throw NoPanelProvidedException::make();
+        }
+    }
+
+    public function getPanel(): ?Panel
+    {
+        return Wirechat::getPanel($this->panel);
+    }
+}
+```
+
+## Setting Current Panel
+
+The current panel is set automatically based on the route, but you can set it manually:
+
+```php
+use Wirechat\Wirechat\Facades\Wirechat;
+
+Wirechat::setCurrentPanel('admin');
+
+$current = Wirechat::getCurrentPanel();
+echo $current->getId(); // 'admin'
+```
+
+## Queue Configuration
+
+Use separate queues for each panel to isolate workloads:
+
+```php
+$customerPanel
+    ->messagesQueue('customer-messages')
+    ->eventsQueue('customer-events');
+
+$adminPanel
+    ->messagesQueue('admin-messages')
+    ->eventsQueue('admin-events');
+```
+
+Run dedicated workers:
+
+```bash
+# Customer messages worker
+php artisan queue:work --queue=customer-messages,customer-events
+
+# Admin messages worker
+php artisan queue:work --queue=admin-messages,admin-events
+```
+
+<Tip>
+  Separate queues prevent one panel's heavy traffic from affecting other panels' performance.
+</Tip>
+
+## Middleware Patterns
+
+<Accordion title="Tenant Isolation">
+
+```php
+// Middleware to ensure users only access their tenant's chat
+namespace App\Http\Middleware;
+
+class EnsureTenantAccess
+{
+    public function handle($request, Closure $next)
+    {
+        $tenantId = $request->user()->tenant_id;
+        $panel = Wirechat::getCurrentPanel();
+        
+        // Verify panel belongs to tenant
+        if ($panel->getId() !== "tenant-{$tenantId}") {
+            abort(403, 'Unauthorized panel access');
+        }
+        
+        return $next($request);
+    }
+}
+```
+
+</Accordion>
+
+<Accordion title="Feature Flags">
+
+```php
+// Conditionally enable panels based on feature flags
+public function panel(Panel $panel): Panel
+{
+    return $panel
+        ->id('beta-chat')
+        ->middleware([
+            'auth',
+            function ($request, $next) {
+                if (!$request->user()->hasFeature('beta-chat')) {
+                    abort(404);
+                }
+                return $next($request);
+            },
+        ]);
+}
+```
+
+</Accordion>
+
+<Accordion title="Role-Based Panels">
+
+```php
+// Different panels for different roles
+public function panel(Panel $panel): Panel
+{
+    return $panel
+        ->id('manager-chat')
+        ->authGuards(['web'])
+        ->middleware([
+            'auth',
+            'role:manager',  // Using spatie/laravel-permission
+        ]);
+}
+```
+
+</Accordion>
+
+## Dynamic Panel Registration
+
+Register panels dynamically at runtime:
+
+```php app/Providers/DynamicPanelProvider.php
+namespace App\Providers;
+
+use Illuminate\Support\ServiceProvider;
+use Wirechat\Wirechat\Panel;
+use Wirechat\Wirechat\PanelRegistry;
+use App\Models\Tenant;
+
+class DynamicPanelProvider extends ServiceProvider
+{
+    public function boot(): void
+    {
+        $registry = app(PanelRegistry::class);
+        
+        // Register a panel for each tenant
+        Tenant::all()->each(function ($tenant) use ($registry) {
+            $panel = Panel::make()
+                ->id("tenant-{$tenant->id}")
+                ->path("tenants/{$tenant->slug}/chat")
+                ->authGuards(['web'])
+                ->colors($tenant->brand_colors);
+            
+            $registry->register($panel);
+        });
+    }
+}
+```
+
+<Warning>
+  Dynamic registration can impact performance with many panels. Consider caching panel configurations.
+</Warning>
+
+## Resolving Panels from Providers
+
+The `PanelRegistry` can resolve panels from provider classes:
+
+```php src/PanelRegistry.php
+protected function resolvePanelFromProvider(string $providerClass): ?Panel
+{
+    if (!class_exists($providerClass)) {
+        return null;
+    }
+
+    $reflection = new ReflectionClass($providerClass);
+    
+    if ($reflection->isSubclassOf(PanelProvider::class) && 
+        $reflection->hasMethod('panel')) {
+        $provider = $reflection->newInstanceWithoutConstructor();
+        return $provider->panel(Panel::make());
+    }
+
+    return null;
+}
+```
+
+This allows lazy loading of panels:
+
+```php
+// Panels are only instantiated when accessed
+$panel = Wirechat::getPanel(CustomerChatPanelProvider::class);
+```
+
+## Testing Multiple Panels
+
+```php tests/Feature/MultiplePanelsTest.php
+use Tests\TestCase;
+use Wirechat\Wirechat\Facades\Wirechat;
+
+class MultiplePanelsTest extends TestCase
+{
+    public function test_panels_are_isolated()
+    {
+        $customerPanel = Wirechat::getPanel('customer');
+        $adminPanel = Wirechat::getPanel('admin');
+        
+        $this->assertEquals('customer', $customerPanel->getId());
+        $this->assertEquals('admin', $adminPanel->getId());
+        $this->assertNotEquals(
+            $customerPanel->getPath(),
+            $adminPanel->getPath()
+        );
+    }
+    
+    public function test_default_panel_is_set()
+    {
+        $default = Wirechat::getDefaultPanel();
+        $this->assertEquals('customer', $default->getId());
+    }
+}
+```
+
+## Troubleshooting
+
+### Panel Not Found
+
+```php
+// NoPanelProvidedException
+```
+
+**Solution:** Ensure the panel provider is registered in `config/app.php` and at least one panel is marked as default.
+
+### Duplicate Panel ID
+
+```php
+// Exception: Panel already registered with ID 'app'
+```
+
+**Solution:** Use unique IDs for each panel. Duplicate IDs are silently skipped by `PanelRegistry::register()`.
+
+### Multiple Default Panels
+
+```php
+// Exception: Only one panel can be marked as default
+```
+
+**Solution:** Only call `->default()` on one panel.
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Broadcasting" icon="tower-broadcast" href="/advanced/broadcasting">
+    Configure real-time updates
+  </Card>
+  <Card title="Extending" icon="puzzle-piece" href="/advanced/extending">
+    Extend WireChat functionality
+  </Card>
+</CardGroup>

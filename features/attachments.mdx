@@ -1,0 +1,398 @@
+---
+title: 'Attachments'
+description: 'Send and receive files, images, and media in conversations'
+icon: 'paperclip'
+---
+
+WireChat provides comprehensive file attachment support, allowing users to share images, videos, documents, and other files in their conversations.
+
+## Enabling Attachments
+
+Configure attachments in your panel configuration:
+
+```php
+use Wirechat\Wirechat\Panel;
+
+Panel::make('admin')
+    ->attachments()  // Enable all attachment types
+    // ... other configuration
+```
+
+### Selective Attachment Types
+
+Enable specific attachment types:
+
+```php
+Panel::make('admin')
+    ->mediaAttachments()  // Only images and videos
+    // or
+    ->fileAttachments()   // Only documents and files
+    // or
+    ->attachments()       // Both media and files
+```
+
+## Configuration Options
+
+Customize attachment settings:
+
+```php
+Panel::make('admin')
+    ->attachments()
+    ->maxUploads(5)                           // Max files per message
+    ->mediaMimes(['png', 'jpg', 'gif', 'mp4']) // Allowed media types
+    ->mediaMaxUploadSize(12288)               // Max size in KB (12MB)
+    ->fileMimes(['pdf', 'doc', 'zip'])        // Allowed file types
+    ->fileMaxUploadSize(10240)                // Max file size in KB (10MB)
+```
+
+<Note>
+File sizes are specified in kilobytes (KB). For example, `12288` KB = 12 MB.
+</Note>
+
+## Default Configuration
+
+WireChat ships with sensible defaults:
+
+```php
+// src/Panel/Concerns/HasAttachments.php:15-23
+protected int|Closure|null $maxUploads = 10;
+
+protected array|Closure|null $mediaMimes = [
+    'png', 'jpg', 'jpeg', 'gif', 'mov', 'mp4'
+];
+
+protected int|Closure|null $mediaMaxUploadSize = 12288;  // 12MB
+
+protected array|Closure|null $fileMimes = [
+    'zip', 'rar', 'txt', 'pdf'
+];
+
+protected int|Closure|null $fileMaxUploadSize = 12288;  // 12MB
+```
+
+## Sending Attachments
+
+Attachments are sent through the WireChat interface. Here's how the system handles them:
+
+```php
+// In your Livewire component
+public array $media = [];  // For images/videos
+public array $files = [];  // For documents
+
+// Combine and process attachments
+$attachments = array_merge($this->media, $this->files);
+
+foreach ($attachments as $attachment) {
+    // Store file
+    $path = $attachment->store(
+        Wirechat::storage()->attachmentsDirectory(),
+        Wirechat::storage()->disk()
+    );
+    
+    // Create message with attachment
+    $message = Message::create([
+        'conversation_id' => $conversation->id,
+        'participant_id' => $participant->getKey(),
+        'type' => MessageType::ATTACHMENT,
+    ]);
+    
+    // Create attachment record
+    $message->attachment()->create([
+        'file_path' => $path,
+        'file_name' => basename($path),
+        'original_name' => $attachment->getClientOriginalName(),
+        'mime_type' => $attachment->getMimeType(),
+        'url' => Storage::disk(Wirechat::storage()->disk())->url($path),
+    ]);
+}
+```
+
+## Attachment Model
+
+The `Attachment` model stores file metadata:
+
+```php
+namespace Wirechat\Wirechat\Models;
+
+class Attachment extends Model
+{
+    protected $fillable = [
+        'attachable_id',
+        'attachable_type',
+        'file_path',
+        'file_name',
+        'original_name',
+        'mime_type',
+        'url',
+    ];
+}
+```
+
+### Attachment Properties
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `file_path` | string | Storage path to the file |
+| `file_name` | string | Generated filename |
+| `original_name` | string | Original uploaded filename |
+| `mime_type` | string | File MIME type (e.g., `image/png`) |
+| `url` | string | Public or temporary URL to access file |
+| `attachable_type` | string | Parent model type (Message, Group) |
+| `attachable_id` | int | Parent model ID |
+
+## Storage Configuration
+
+Configure where attachments are stored:
+
+```php
+use Wirechat\Wirechat\Facades\Wirechat;
+
+// In a service provider
+Wirechat::storage()
+    ->disk('public')                    // Laravel disk
+    ->attachmentsDirectory('wirechat')  // Directory path
+    ->visibility('public');             // public or private
+```
+
+### Private Storage
+
+For sensitive files, use private storage with temporary URLs:
+
+```php
+Wirechat::storage()
+    ->disk('s3')           // Use S3 or other private disk
+    ->visibility('private');
+
+// Temporary URLs are generated automatically
+// src/Models/Attachment.php:111-113
+if (($diskVisibility) === 'private') {
+    return $disk->temporaryUrl($path, now()->addMinutes(5));
+}
+```
+
+<Tip>
+Temporary URLs for private files are valid for 5 minutes and regenerated on each request.
+</Tip>
+
+## Accessing Attachments
+
+Retrieve attachments from messages:
+
+```php
+// Check if message has attachment
+if ($message->hasAttachment()) {
+    $attachment = $message->attachment;
+    
+    echo $attachment->url;           // File URL
+    echo $attachment->original_name; // Original filename
+    echo $attachment->mime_type;     // MIME type
+    echo $attachment->clean_mime_type; // Just the extension
+}
+
+// Check message type
+if ($message->isAttachment()) {
+    // Message is an attachment
+}
+```
+
+## Group Cover Photos
+
+Groups can have cover photos, which are also stored as attachments:
+
+```php
+$group = $conversation->group;
+
+// Get cover URL
+$coverUrl = $group->cover_url;
+// or
+$coverUrl = $group->cover?->url;
+
+// Update cover photo
+if ($request->hasFile('cover')) {
+    $group->cover?->delete();  // Delete old cover
+    
+    $path = $request->file('cover')->store(
+        Wirechat::storage()->attachmentsDirectory(),
+        Wirechat::storage()->disk()
+    );
+    
+    $group->cover()->create([
+        'file_path' => $path,
+        'file_name' => basename($path),
+        'original_name' => $request->file('cover')->getClientOriginalName(),
+        'mime_type' => $request->file('cover')->getMimeType(),
+        'url' => Storage::disk(Wirechat::storage()->disk())->url($path),
+    ]);
+}
+```
+
+## Attachment Validation
+
+WireChat validates attachments before storage:
+
+```php
+// Validation rules from src/Livewire/Chat/Chat.php:373-379
+$this->validate([
+    'files' => "array|max:$maxUploads|nullable",
+    'files.*' => "max:$fileMaxUploadSize|mimes:$fileMimes",
+    'media' => "array|max:$maxUploads|nullable",
+    'media.*' => "max:$mediaMaxUploadSize|mimes:$mediaMimes",
+]);
+```
+
+### Custom Validation Messages
+
+```php
+public function messages(): array
+{
+    return [
+        'media.max' => 'You can upload a maximum of :max files',
+        'media.*.max' => 'Each file must be smaller than :max KB',
+        'media.*.mimes' => 'Only :values files are allowed',
+        'files.max' => 'You can upload a maximum of :max files',
+        'files.*.max' => 'Each file must be smaller than :max KB',
+        'files.*.mimes' => 'Only :values files are allowed',
+    ];
+}
+```
+
+## Attachment Deletion
+
+Attachments are automatically deleted when messages are removed:
+
+```php
+// src/Models/Message.php:147-154
+static::deleted(function ($message) {
+    if ($message->attachment?->exists()) {
+        // Delete attachment (also removes file from disk)
+        $message->attachment->delete();
+    }
+});
+
+// The file is removed from storage when attachment is deleted
+// src/Models/Attachment.php:70-76
+static::deleted(function (Attachment $media) {
+    $disk = Wirechat::storage()->disk();
+    
+    if (Storage::disk($disk)->exists($media->file_path)) {
+        Storage::disk($disk)->delete($media->file_path);
+    }
+});
+```
+
+## Multiple Attachments
+
+Send multiple files in a single action:
+
+```php
+// Files are processed in a loop
+foreach ($attachments as $key => $attachment) {
+    // First attachment gets the reply reference
+    $replyId = ($key === 0 && $this->replyMessage) 
+        ? $this->replyMessage->id 
+        : null;
+    
+    // Each attachment creates a separate message
+    $message = Message::create([
+        'reply_id' => $replyId,
+        'conversation_id' => $conversation->id,
+        'participant_id' => $participant->getKey(),
+        'type' => MessageType::ATTACHMENT,
+    ]);
+    
+    // Attach file to message
+    $message->attachment()->create([/* ... */]);
+}
+```
+
+<Note>
+Each attachment creates a separate message. If you send 3 images, 3 messages will be created.
+</Note>
+
+## Attachment Queries
+
+Query messages with attachments:
+
+```php
+// Get all messages with attachments
+$messagesWithAttachments = Message::has('attachment')->get();
+
+// Eager load attachments
+$messages = Message::with('attachment')->get();
+
+// Get attachment types
+$images = Message::whereHas('attachment', function ($query) {
+    $query->where('mime_type', 'like', 'image/%');
+})->get();
+```
+
+## Checking Attachment Support
+
+Verify if attachments are enabled:
+
+```php
+$panel = Wirechat::panel('admin');
+
+if ($panel->hasAttachments()) {
+    // Attachments enabled
+}
+
+if ($panel->hasMediaAttachments()) {
+    // Media attachments enabled
+}
+
+if ($panel->hasFileAttachments()) {
+    // File attachments enabled
+}
+```
+
+## File Type Detection
+
+Get clean MIME type information:
+
+```php
+$attachment = $message->attachment;
+
+echo $attachment->mime_type;        // 'image/png'
+echo $attachment->clean_mime_type;  // 'png'
+
+// src/Models/Attachment.php:126-129
+public function getCleanMimeTypeAttribute(): string
+{
+    return explode('/', $this->mime_type)[1] ?? 'unknown';
+}
+```
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Size Limits" icon="weight-scale">
+    Set reasonable file size limits based on your server and storage capacity
+  </Card>
+  <Card title="Private Files" icon="lock">
+    Use private storage with temporary URLs for sensitive documents
+  </Card>
+  <Card title="File Types" icon="file-circle-check">
+    Restrict file types to prevent security issues and unwanted content
+  </Card>
+  <Card title="Storage Choice" icon="database">
+    Use cloud storage (S3, Cloudflare R2) for scalability
+  </Card>
+</CardGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Storage" icon="hard-drive" href="/configuration/storage">
+    Configure storage disks and directories
+  </Card>
+  <Card title="Private Chats" icon="messages" href="/features/private-chats">
+    Send attachments in private conversations
+  </Card>
+  <Card title="Group Chats" icon="users" href="/features/group-chats">
+    Share files in group conversations
+  </Card>
+  <Card title="Theming" icon="palette" href="/features/theming">
+    Customize attachment display in the UI
+  </Card>
+</CardGroup>

@@ -1,0 +1,173 @@
+---
+title: 'WirechatUser Contract'
+description: 'Interface for implementing user authorization in WireChat'
+icon: 'shield-halved'
+---
+
+## Overview
+
+The `WirechatUser` contract defines the authorization interface that your User model must implement to control access to WireChat features. This contract ensures users have proper permissions for creating chats, groups, and accessing the WireChat panel.
+
+## Contract Location
+
+```php
+Wirechat\Wirechat\Contracts\WirechatUser
+```
+
+## Implementation
+
+Your User model must implement this contract:
+
+```php
+use Wirechat\Wirechat\Contracts\WirechatUser;
+use Wirechat\Wirechat\Traits\InteractsWithWirechat;
+
+class User extends Authenticatable implements WirechatUser
+{
+    use InteractsWithWirechat;
+    
+    // Implement required methods...
+}
+```
+
+## Required Methods
+
+### canCreateGroups()
+
+Determine if the user can create new groups.
+
+<ParamField path="return" type="bool" required>
+  Returns `true` if the user is allowed to create groups, `false` otherwise
+</ParamField>
+
+```php
+public function canCreateGroups(): bool
+{
+    // Example: Only verified users can create groups
+    return $this->hasVerifiedEmail();
+}
+```
+
+<Note>
+This method is called before allowing users to access group creation forms or process group creation requests.
+</Note>
+
+### canCreateChats()
+
+Determine if the user can create new chats with other users.
+
+<ParamField path="return" type="bool" required>
+  Returns `true` if the user is allowed to create private chats, `false` otherwise
+</ParamField>
+
+```php
+public function canCreateChats(): bool
+{
+    // Example: All authenticated users can create chats
+    return true;
+}
+```
+
+<Note>
+This permission is checked when users attempt to start private conversations with other users.
+</Note>
+
+### canAccessWirechatPanel()
+
+Determine if the user can access the WireChat panel.
+
+<ParamField path="panel" type="Panel" required>
+  The panel instance being accessed
+</ParamField>
+
+<ParamField path="return" type="bool" required>
+  Returns `true` if the user can access the specified panel, `false` otherwise
+</ParamField>
+
+```php
+use Wirechat\Wirechat\Panel;
+
+public function canAccessWirechatPanel(Panel $panel): bool
+{
+    // Example: Check user role or permissions
+    return $this->hasRole('user');
+}
+```
+
+<Note>
+Multiple panels can be registered in WireChat. This method receives the specific panel being accessed, allowing for granular access control.
+</Note>
+
+## Complete Example
+
+Here's a complete implementation example:
+
+```php
+namespace App\Models;
+
+use Illuminate\Foundation\Auth\User as Authenticatable;
+use Wirechat\Wirechat\Contracts\WirechatUser;
+use Wirechat\Wirechat\Traits\InteractsWithWirechat;
+use Wirechat\Wirechat\Panel;
+
+class User extends Authenticatable implements WirechatUser
+{
+    use InteractsWithWirechat;
+    
+    /**
+     * Determine if the user can create new groups.
+     */
+    public function canCreateGroups(): bool
+    {
+        // Only verified users with 'create-groups' permission
+        return $this->hasVerifiedEmail() && 
+               $this->can('create-groups');
+    }
+    
+    /**
+     * Determine if the user can create new chats with other users.
+     */
+    public function canCreateChats(): bool
+    {
+        // All verified users can create chats
+        return $this->hasVerifiedEmail();
+    }
+    
+    /**
+     * Determine if the user can access wirechat panel.
+     */
+    public function canAccessWirechatPanel(Panel $panel): bool
+    {
+        // Check if user has appropriate role
+        if ($panel->getId() === 'admin') {
+            return $this->hasRole('admin');
+        }
+        
+        return true; // Default panel accessible to all
+    }
+}
+```
+
+## Authorization Flow
+
+<Steps>
+  <Step title="User Authentication">
+    User must be authenticated to access WireChat features
+  </Step>
+  <Step title="Panel Access Check">
+    `canAccessWirechatPanel()` is called to verify panel access
+  </Step>
+  <Step title="Feature-Specific Checks">
+    When creating groups: `canCreateGroups()` is called
+    
+    When creating chats: `canCreateChats()` is called
+  </Step>
+  <Step title="Authorization Failure">
+    If any check returns `false`, a 403 Forbidden response is returned
+  </Step>
+</Steps>
+
+## Related
+
+- [InteractsWithWirechat Trait](/api/interacts-with-wirechat) - Provides chat functionality methods
+- [Configuration](/configuration/overview) - Learn about panel configuration
