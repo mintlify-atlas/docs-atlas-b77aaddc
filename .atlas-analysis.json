@@ -1,0 +1,161 @@
+{
+  "projectType": "framework",
+  "projectName": "WireChat",
+  "projectDescription": "A Laravel Livewire chat package for real-time private and group messaging with embeddable components.",
+  "theme": "almond",
+  "primaryColor": "#3b82f6",
+  "lightColor": null,
+  "darkColor": null,
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Getting Started",
+            "pages": [
+              "introduction",
+              "installation",
+              "quickstart"
+            ]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "concepts/panels",
+              "concepts/conversations",
+              "concepts/messages",
+              "concepts/participants",
+              "concepts/groups",
+              "concepts/attachments"
+            ]
+          },
+          {
+            "group": "Configuration",
+            "pages": [
+              "configuration/overview",
+              "configuration/panels",
+              "configuration/colors",
+              "configuration/storage",
+              "configuration/broadcasting",
+              "configuration/notifications"
+            ]
+          },
+          {
+            "group": "Features",
+            "pages": [
+              "features/private-chats",
+              "features/group-chats",
+              "features/attachments",
+              "features/search",
+              "features/notifications",
+              "features/theming"
+            ]
+          },
+          {
+            "group": "Customization",
+            "pages": [
+              "customization/user-interface",
+              "customization/components",
+              "customization/middleware",
+              "customization/actions"
+            ]
+          },
+          {
+            "group": "Advanced",
+            "pages": [
+              "advanced/events",
+              "advanced/broadcasting",
+              "advanced/multiple-panels",
+              "advanced/extending"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Core Classes",
+            "pages": [
+              "api/panel",
+              "api/conversation",
+              "api/message",
+              "api/participant",
+              "api/group",
+              "api/attachment"
+            ]
+          },
+          {
+            "group": "Traits & Contracts",
+            "pages": [
+              "api/wirechat-user",
+              "api/interacts-with-wirechat"
+            ]
+          },
+          {
+            "group": "Livewire Components",
+            "pages": [
+              "api/components/chat",
+              "api/components/chats",
+              "api/components/widget"
+            ]
+          },
+          {
+            "group": "Commands",
+            "pages": [
+              "api/commands/install",
+              "api/commands/make-panel",
+              "api/commands/setup-notifications",
+              "api/commands/upgrade"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Resources",
+        "groups": [
+          {
+            "group": "Help",
+            "pages": [
+              "resources/migration-guide",
+              "resources/troubleshooting",
+              "resources/contributing",
+              "resources/changelog"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Real-time private and group messaging",
+    "Multiple chat panels for different contexts (admin, user, support)",
+    "File attachments with media previews",
+    "Customizable themes and colors",
+    "Web push notifications",
+    "Search functionality",
+    "Message replies and actions",
+    "Embeddable Livewire components",
+    "Laravel Broadcasting integration",
+    "Role-based group permissions"
+  ],
+  "publicApiSurface": [
+    "Wirechat\\Wirechat\\Panel",
+    "Wirechat\\Wirechat\\Models\\Conversation",
+    "Wirechat\\Wirechat\\Models\\Message",
+    "Wirechat\\Wirechat\\Models\\Participant",
+    "Wirechat\\Wirechat\\Models\\Group",
+    "Wirechat\\Wirechat\\Models\\Attachment",
+    "Wirechat\\Wirechat\\Contracts\\WirechatUser",
+    "Wirechat\\Wirechat\\Traits\\InteractsWithWirechat",
+    "Wirechat\\Wirechat\\Livewire\\Chat\\Chat",
+    "Wirechat\\Wirechat\\Livewire\\Chats\\Chats",
+    "Wirechat\\Wirechat\\Livewire\\Widgets\\Wirechat",
+    "php artisan wirechat:install",
+    "php artisan make:wirechat-panel",
+    "php artisan wirechat:setup-notifications",
+    "@wirechatAssets",
+    "@wirechatStyles"
+  ]
+}
